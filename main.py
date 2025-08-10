@@ -36,14 +36,16 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
                 data = await websocket.receive_text()
                 print(f"Received message from client in '{lobby.lobby_id}': {data}")
 
-                broadcast_message = json.dumps({"lobby_id": lobby.lobby_id, "message": data})
-                await manager.broadcast(lobby, broadcast_message, websocket)
+                response_message = f"Server received your message: '{data}'"
+                await websocket.send_text(response_message)
+                print(f"Sent response to client in '{lobby.lobby_id}': {response_message}")
+                
             except WebSocketDisconnect:
                 raise
             except Exception as e:
                 print(f"An error occurred in lobby '{lobby.lobby_id}': {e}")
                 traceback.print_exc()
-                break 
+                break
     except HTTPException as e:
         await websocket.close(code=1008, reason=e.detail)
     except WebSocketDisconnect:
