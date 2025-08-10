@@ -3,10 +3,11 @@
 Install the requirements first :
 
 ```python -m venv .venv```
+```.\.venv\Scripts\activate```
 ```pip install -r requirements.txt```
 
 ### Run server
 
 Then run the server using :
 
-```uvicorn api:app --reload```
+```uvicorn main:app --reload```

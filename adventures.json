@@ -1,0 +1,23 @@
+[
+    {
+        "id": 1,
+        "title": "The Crypt of the Serpent King",
+        "description": "You and your companions have been tasked with exploring a forgotten crypt said to hold the tomb of an ancient king and a powerful artifact. But beware, the crypt is guarded by a slithering monstrosity.",
+        "min_players": 2,
+        "max_players": 4
+    },
+    {
+        "id": 2,
+        "title": "Escape from the Sky Fortress",
+        "description": "Your team has been captured and imprisoned aboard a floating fortress in the clouds. With a massive storm approaching, you must work together to find an escape route before the fortress is destroyed.",
+        "min_players": 3,
+        "max_players": 5
+    },
+    {
+        "id": 3,
+        "title": "Mystery on the Starship Voyager",
+        "description": "A mysterious signal has drawn your starship to a derelict vessel. As you board to investigate, you find the crew missing and the ship's systems in disarray. Can you uncover the truth before it's too late?",
+        "min_players": 2,
+        "max_players": 6
+    }
+]
