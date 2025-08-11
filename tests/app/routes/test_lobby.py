@@ -23,17 +23,23 @@ def test_create_lobby_invalid_limits():
 def test_websocket_connect_and_message():
     """Test that a client can connect to a lobby and send a message."""
     create_response = client.post("/lobby/create?min_players=2&max_players=4")
-    print(f"create_response: {create_response.json()}")
     lobby_id = create_response.json()["lobby_id"]
     assert lobby_id in manager.lobbies
 
     with client.websocket_connect(f"/lobby/join/{lobby_id}") as websocket:
-        data = websocket.receive_text()
-        assert data == f"Welcome to lobby '{lobby_id}'."
+        welcome = websocket.receive_text()
+        assert welcome == f"Welcome to lobby '{lobby_id}'."
+        
+        lobby_info = websocket.receive_json()
+        assert lobby_info["type"] == "lobby_info"
+        assert lobby_info["info"]["lobby_id"] == lobby_id
+        assert lobby_info["info"]["current_players"] == 1
+        
         test_message = "Hello, world!"
         websocket.send_text(test_message)
-        response_data = websocket.receive_text()
-        assert response_data == f"Server received your message: '{test_message}'"
+        
+        response = websocket.receive_text()
+        assert response == f"Server received your message: '{test_message}'"
 
 def test_websocket_join_non_existent_lobby():
     """Test that a connection to a non-existent lobby fails."""
@@ -58,3 +64,36 @@ def test_websocket_join_full_lobby():
         
         assert excinfo.value.code == 1008
         assert excinfo.value.reason == "Lobby is full"
+
+def test_websocket_broadcast_lobby_info():
+    """Test that all clients receive updated lobby info when a new client joins."""
+    create_response = client.post("/lobby/create?min_players=2&max_players=4")
+    assert create_response.status_code == 200
+    lobby_id = create_response.json()["lobby_id"]
+    assert lobby_id in manager.lobbies
+
+    # Connect first client
+    with client.websocket_connect(f"/lobby/join/{lobby_id}") as ws1:
+        welcome1 = ws1.receive_text()
+        assert welcome1 == f"Welcome to lobby '{lobby_id}'."
+        # ws1 should receive lobby info as JSON
+        lobby_info_msg1 = ws1.receive_json()
+        assert lobby_info_msg1["type"] == "lobby_info"
+        assert lobby_info_msg1["info"]["current_players"] == 1
+        assert lobby_info_msg1["info"]["lobby_id"] == lobby_id
+
+        # Connect second client
+        with client.websocket_connect(f"/lobby/join/{lobby_id}") as ws2:
+            welcome2 = ws2.receive_text()
+            assert welcome2 == f"Welcome to lobby '{lobby_id}'."
+            # ws2 should receive lobby info as JSON
+            lobby_info_msg2 = ws2.receive_json()
+            assert lobby_info_msg2["type"] == "lobby_info"
+            assert lobby_info_msg2["info"]["current_players"] == 2
+            assert lobby_info_msg2["info"]["lobby_id"] == lobby_id
+
+            # ws1 should also receive updated lobby info
+            lobby_info_msg1_update = ws1.receive_json()
+            assert lobby_info_msg1_update["type"] == "lobby_info"
+            assert lobby_info_msg1_update["info"]["current_players"] == 2
+            assert lobby_info_msg1_update["info"]["lobby_id"] == lobby_id

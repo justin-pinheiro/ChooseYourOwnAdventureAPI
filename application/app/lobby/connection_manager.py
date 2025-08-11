@@ -29,31 +29,51 @@ class ConnectionManager:
             raise HTTPException(status_code=404, detail="Lobby not found")
         
         lobby = self.lobbies[lobby_id]
-        if len(lobby.active_connections) >= lobby.max_players:
+        if len(lobby.connections) >= lobby.max_players:
             raise HTTPException(status_code=403, detail="Lobby is full")
 
         await websocket.accept()
-        lobby.active_connections.add(websocket)
-        print(f"Client connected to lobby '{lobby_id}'. Total clients: {len(lobby.active_connections)}")
+        lobby.connections.add(websocket)
+        print(f"Client connected to lobby '{lobby_id}'. Total clients: {len(lobby.connections)}")
         return lobby
 
     def disconnect(self, websocket: WebSocket, lobby_id: str):
         """Removes a client connection from a specified lobby."""
         if lobby_id in self.lobbies:
             lobby = self.lobbies[lobby_id]
-            if websocket in lobby.active_connections:
-                lobby.active_connections.remove(websocket)
-                print(f"Client removed from lobby '{lobby_id}'. Total clients: {len(lobby.active_connections)}")
+            if websocket in lobby.connections:
+                lobby.connections.remove(websocket)
+                print(f"Client removed from lobby '{lobby_id}'. Total clients: {len(lobby.connections)}")
                 # Clean up the lobby if it becomes empty
-                if not lobby.active_connections:
+                if not lobby.connections:
                     del self.lobbies[lobby_id]
                     print(f"Lobby '{lobby_id}' is now empty and has been removed.")
 
     async def broadcast(self, lobby: Lobby, message: str, sender: WebSocket):
         """Sends a message to all clients in a lobby, except the sender."""
-        for client_ws in list(lobby.active_connections):
+        for client_ws in list(lobby.connections):
             if client_ws != sender:
                 try:
                     await client_ws.send_text(message)
                 except WebSocketDisconnect:
                     self.disconnect(client_ws, lobby.lobby_id)
+
+    async def broadcast_lobby_info(self, lobby_id: str):
+        lobby = self.lobbies.get(lobby_id)
+        if not lobby:
+            return
+        info = {
+            "type": "lobby_info",
+            "info": {
+                "lobby_id": lobby.lobby_id,
+                "current_players": len(lobby.connections),
+                "max_players": lobby.max_players,
+                "min_players": lobby.min_players
+            }
+        }
+        
+        for connection in lobby.connections:
+            try:
+                await connection.send_json(info)
+            except WebSocketDisconnect:
+                self.disconnect(connection, lobby_id)

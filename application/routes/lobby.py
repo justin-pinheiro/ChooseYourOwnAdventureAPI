@@ -29,6 +29,8 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
         
         await websocket.send_text(f"Welcome to lobby '{lobby.lobby_id}'.")
         
+        await manager.broadcast_lobby_info(lobby_id)
+        
         while True:
             try:
                 data = await websocket.receive_text()
