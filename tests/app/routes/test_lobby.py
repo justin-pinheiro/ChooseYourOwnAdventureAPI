@@ -34,6 +34,8 @@ def test_websocket_connect_and_message():
         assert lobby_info["type"] == "lobby_info"
         assert lobby_info["info"]["lobby_id"] == lobby_id
         assert lobby_info["info"]["current_players"] == 1
+        assert len(lobby_info["info"]["players"]) == 1
+        assert lobby_info["info"]["players"][0]["name"] == "Player 1"
         
         test_message = "Hello, world!"
         websocket.send_text(test_message)
@@ -81,6 +83,8 @@ def test_websocket_broadcast_lobby_info():
         assert lobby_info_msg1["type"] == "lobby_info"
         assert lobby_info_msg1["info"]["current_players"] == 1
         assert lobby_info_msg1["info"]["lobby_id"] == lobby_id
+        assert len(lobby_info_msg1["info"]["players"]) == 1
+        assert lobby_info_msg1["info"]["players"][0]["name"] == "Player 1"
 
         # Connect second client
         with client.websocket_connect(f"/lobby/join/{lobby_id}") as ws2:
@@ -91,9 +95,15 @@ def test_websocket_broadcast_lobby_info():
             assert lobby_info_msg2["type"] == "lobby_info"
             assert lobby_info_msg2["info"]["current_players"] == 2
             assert lobby_info_msg2["info"]["lobby_id"] == lobby_id
+            assert len(lobby_info_msg2["info"]["players"]) == 2
+            assert lobby_info_msg2["info"]["players"][0]["name"] == "Player 1"
+            assert lobby_info_msg2["info"]["players"][1]["name"] == "Player 2"
 
             # ws1 should also receive updated lobby info
             lobby_info_msg1_update = ws1.receive_json()
             assert lobby_info_msg1_update["type"] == "lobby_info"
             assert lobby_info_msg1_update["info"]["current_players"] == 2
             assert lobby_info_msg1_update["info"]["lobby_id"] == lobby_id
+            assert len(lobby_info_msg1_update["info"]["players"]) == 2
+            assert lobby_info_msg1_update["info"]["players"][0]["name"] == "Player 1"
+            assert lobby_info_msg1_update["info"]["players"][1]["name"] == "Player 2"

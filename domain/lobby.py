@@ -1,5 +1,6 @@
-from typing import Set
+from typing import Set, List
 from fastapi import WebSocket
+from .user import User
 
 class Lobby:
     """Represents a single lobby with player limits and connections."""
@@ -8,3 +9,4 @@ class Lobby:
         self.min_players = min_players
         self.max_players = max_players
         self.connections: Set[WebSocket] = set()
+        self.users: List[User] = []

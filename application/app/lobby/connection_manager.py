@@ -4,7 +4,10 @@ from typing import Dict
 import uuid
 from fastapi import WebSocket, WebSocketDisconnect, HTTPException
 
+import random
+
 from domain.lobby import Lobby
+from domain.lobby import User
 
 
 class ConnectionManager:
@@ -34,6 +37,14 @@ class ConnectionManager:
 
         await websocket.accept()
         lobby.connections.add(websocket)
+        
+        # Find an available id
+        player_id = 1
+        while any(user.name == f"Player {player_id}" for user in lobby.users):
+            player_id += 1
+
+        lobby.users.append(User(f"Player {player_id}"))
+            
         print(f"Client connected to lobby '{lobby_id}'. Total clients: {len(lobby.connections)}")
         return lobby
 
@@ -41,9 +52,16 @@ class ConnectionManager:
         """Removes a client connection from a specified lobby."""
         if lobby_id in self.lobbies:
             lobby = self.lobbies[lobby_id]
+            
             if websocket in lobby.connections:
+                
+                index = list(lobby.connections).index(websocket)
+                
                 lobby.connections.remove(websocket)
+                if 0 <= index < len(lobby.users): lobby.users.pop(index)
+                
                 print(f"Client removed from lobby '{lobby_id}'. Total clients: {len(lobby.connections)}")
+                
                 # Clean up the lobby if it becomes empty
                 if not lobby.connections:
                     del self.lobbies[lobby_id]
@@ -67,6 +85,7 @@ class ConnectionManager:
             "info": {
                 "lobby_id": lobby.lobby_id,
                 "current_players": len(lobby.connections),
+                "players": [user.toDict() for user in lobby.users],
                 "max_players": lobby.max_players,
                 "min_players": lobby.min_players
             }
