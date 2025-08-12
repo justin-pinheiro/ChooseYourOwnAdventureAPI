@@ -8,5 +8,4 @@ class Lobby:
         self.lobby_id = lobby_id
         self.min_players = min_players
         self.max_players = max_players
-        self.connections: Set[WebSocket] = set()
         self.users: List[User] = []
