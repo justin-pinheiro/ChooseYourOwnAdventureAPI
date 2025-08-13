@@ -73,6 +73,20 @@ class ConnectionManager:
                 except WebSocketDisconnect:
                     self.disconnect(user.webSocket, lobby.lobby_id)
 
+    async def toggle_player_ready_state(self, websocket: WebSocket, lobby_id: str):
+        """Toggles the ready state for a player and broadcasts the updated lobby info."""
+        if lobby_id not in self.lobbies:
+            return None
+        
+        lobby = self.lobbies[lobby_id]
+        for user in lobby.users:
+            if user.webSocket == websocket:
+                user.is_ready = not user.is_ready
+                print(f"Player '{user.name}' in lobby '{lobby_id}' toggled ready state to: {user.is_ready}")
+                await self.broadcast_lobby_info(lobby_id)
+                return user.is_ready
+        return None
+
     async def broadcast_lobby_info(self, lobby_id: str):
         lobby = self.lobbies.get(lobby_id)
         if not lobby:

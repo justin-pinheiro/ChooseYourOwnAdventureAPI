@@ -36,12 +36,38 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
                 data = await websocket.receive_text()
                 print(f"Received message from client in '{lobby.lobby_id}': {data}")
 
-                response_message = f"Server received your message: '{data}'"
-                await websocket.send_text(response_message)
-                print(f"Sent response to client in '{lobby.lobby_id}': {response_message}")
+                try:
+                    import json
+                    message = json.loads(data)
+                    
+                    if message.get("type") == "toggle_ready":
+                        new_ready_state = await manager.toggle_player_ready_state(websocket, lobby_id)
+                        if new_ready_state is not None:
+                            await websocket.send_json({
+                                "type": "ready_toggled",
+                                "success": True,
+                                "is_ready": new_ready_state
+                            })
+                        else:
+                            await websocket.send_json({
+                                "type": "ready_toggled", 
+                                "success": False,
+                                "error": "Player not found in lobby"
+                            })
+                    else:
+                        response_message = f"Server received your message: '{data}'"
+                        await websocket.send_text(response_message)
+                        print(f"Sent response to client in '{lobby.lobby_id}': {response_message}")
+                        
+                except json.JSONDecodeError:
+                    
+                    response_message = f"Server received your message: '{data}'"
+                    await websocket.send_text(response_message)
+                    print(f"Sent response to client in '{lobby.lobby_id}': {response_message}")
                 
             except WebSocketDisconnect:
                 raise
+            
             except Exception as e:
                 print(f"An error occurred in lobby '{lobby.lobby_id}': {e}")
                 traceback.print_exc()
