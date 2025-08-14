@@ -1,12 +1,10 @@
-from fastapi import WebSocket
+from dataclasses import dataclass
 
+
+@dataclass
 class User:
-    
     """Represents a User and its informations."""
-    def __init__(self, webSocket : WebSocket, name: str):
-        self.webSocket = webSocket
-        self.name = name
-        
+    name: str
 
-    def toDict(self):
+    def to_dict(self):
         return {"name": self.name}
