@@ -1,12 +1,9 @@
 # A dedicated class to manage WebSocket connections and lobbies.
 from http.client import HTTPException
-import logging
 from typing import Dict
 import uuid
 from domain.connection import Connection
 from fastapi import WebSocket, WebSocketDisconnect, HTTPException
-
-import random
 
 from domain.lobby import Lobby
 from domain.lobby import User
@@ -22,6 +19,10 @@ class LobbyManager:
 
     def create_lobby(self, max_players: int) -> str:
         """Generates a unique ID and creates a new lobby."""
+        
+        if max_players < 1:
+            raise HTTPException(status_code=400, detail="Invalid player limits: max_players must be at least 1")
+        
         lobby_id = str(uuid.uuid4())[:8]
         self.lobbies[lobby_id] = Lobby(lobby_id, max_players)
         print(f"Lobby '{lobby_id}' created with max:{max_players} players.")
@@ -46,7 +47,7 @@ class LobbyManager:
         print(f"Client {websocket} connected to lobby '{lobby_id}'. Total clients: {len(lobby.connections)}")
         return lobby
 
-    async def disconnect(self, websocket: WebSocket, lobby_id: str):
+    def disconnect(self, websocket: WebSocket, lobby_id: str):
         """Removes a client connection from a specified lobby."""
         if lobby_id in self.lobbies.keys():
             lobby = self.lobbies[lobby_id]

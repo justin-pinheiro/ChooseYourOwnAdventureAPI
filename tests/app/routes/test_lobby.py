@@ -8,7 +8,7 @@ client = TestClient(app)
 
 def test_create_lobby_success():
     """Test that a lobby can be created with valid player limits."""
-    response = client.post("/lobby/create?min_players=2&max_players=4")
+    response = client.post("/lobby/create?max_players=4")
     assert response.status_code == 200
     assert "lobby_id" in response.json()
     lobby_id = response.json()["lobby_id"]
@@ -16,13 +16,13 @@ def test_create_lobby_success():
 
 def test_create_lobby_invalid_limits():
     """Test that a lobby cannot be created with invalid limits."""
-    response = client.post("/lobby/create?min_players=5&max_players=4")
+    response = client.post("/lobby/create?max_players=0")
     assert response.status_code == 400
-    assert response.json()["detail"] == "Invalid player limits: min_players must be at least 1 and less than or equal to max_players"
+    assert response.json()["detail"] == "Invalid player limits: max_players must be at least 1"
 
 def test_websocket_connect_and_message():
     """Test that a client can connect to a lobby and send a message."""
-    create_response = client.post("/lobby/create?min_players=2&max_players=4")
+    create_response = client.post("/lobby/create?max_players=4")
     lobby_id = create_response.json()["lobby_id"]
     assert lobby_id in manager.lobbies
 
@@ -51,7 +51,7 @@ def test_websocket_join_non_existent_lobby():
 
 def test_websocket_join_full_lobby():
     """Test that a connection to a full lobby fails."""
-    create_response = client.post("/lobby/create?min_players=1&max_players=1")
+    create_response = client.post("/lobby/create?max_players=1")
     lobby_id = create_response.json()["lobby_id"]
     
     with client.websocket_connect(f"/lobby/join/{lobby_id}") as ws1:
@@ -66,7 +66,7 @@ def test_websocket_join_full_lobby():
 
 def test_websocket_broadcast_lobby_info():
     """Test that all clients receive updated lobby info when a new client joins."""
-    create_response = client.post("/lobby/create?min_players=2&max_players=4")
+    create_response = client.post("/lobby/create?max_players=4")
     assert create_response.status_code == 200
     lobby_id = create_response.json()["lobby_id"]
     assert lobby_id in manager.lobbies
