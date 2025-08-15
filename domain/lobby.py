@@ -3,14 +3,13 @@ from dataclasses import dataclass, field
 from domain.connection import Connection
 from domain.game_state import GameState
 from fastapi import WebSocket
-from .user import User
 
 @dataclass
 class Lobby:
     """Represents a single lobby with player limits and connections."""
     id: str
     max_players: int
-    users: List[User] = field(default_factory=list)
+    connections: List[Connection] = field(default_factory=list)
     host: WebSocket = None
     game_state: GameState = field(default_factory=GameState)
 
@@ -18,6 +17,6 @@ class Lobby:
         return {
             "id": self.id,
             "max_players": self.max_players,
-            "users": [conn.to_dict() for conn in self.users],
+            "connections": [conn.to_dict() for conn in self.connections],
             "game_state": self.game_state.to_dict(),
         }

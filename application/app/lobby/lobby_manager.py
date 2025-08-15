@@ -6,7 +6,7 @@ from domain.connection import Connection
 from fastapi import WebSocket, WebSocketDisconnect, HTTPException
 
 from domain.lobby import Lobby
-from domain.lobby import User
+from domain.user import User
 
 
 class LobbyManager:
@@ -28,67 +28,67 @@ class LobbyManager:
         print(f"Lobby '{lobby_id}' created with max:{max_players} players.")
         return lobby_id
 
-    async def connect(self, websocket: WebSocket, lobby_id: str):
+    async def connect(self, socket: WebSocket, lobby_id: str):
         """Adds a new client connection to a specified lobby."""
         print(f"lobbies ids: {self.lobbies.keys()}")
         if lobby_id not in self.lobbies.keys():
             raise HTTPException(status_code=404, detail="Lobby not found")
         
         lobby = self.lobbies[lobby_id]
-        print(f"connections for lobby {lobby_id}: {lobby.users}")
-        if len(lobby.users) >= lobby.max_players:
+        print(f"connections for lobby {lobby_id}: {lobby.connections}")
+        if len(lobby.connections) >= lobby.max_players:
             raise HTTPException(status_code=403, detail="Lobby is full")
 
-        await websocket.accept()
+        await socket.accept()
         
         # Find an available id
         player_id = 1
-        while any(user.name == f"Player {player_id}" for user in lobby.users):
+        while any(connection.user.name == f"Player {player_id}" for connection in lobby.connections):
             player_id += 1
 
-        # Add the user to the list
-        lobby.users.append(User(websocket, f"Player {player_id}"))
+        # Add the connection to the list
+        lobby.connections.append(Connection(socket, User(f"Player {player_id}")))
         
-        print(f"Client {websocket} connected to lobby '{lobby_id}'. Total clients: {len(lobby.users)}")
+        print(f"Client {socket} connected to lobby '{lobby_id}'. Total clients: {len(lobby.connections)}")
         return lobby
 
-    async def toggle_player_ready_state(self, websocket: WebSocket, lobby_id: str):
+    async def toggle_player_ready_state(self, socket: WebSocket, lobby_id: str):
         """Toggles the ready state for a player and broadcasts the updated lobby info."""
         if lobby_id not in self.lobbies:
             return None
         
         lobby = self.lobbies[lobby_id]
-        for user in lobby.users:
-            if user.webSocket == websocket:
-                user.is_ready = not user.is_ready
-                print(f"Player '{user.name}' in lobby '{lobby_id}' toggled ready state to: {user.is_ready}")
+        for connection in lobby.connections:
+            if connection.socket == socket:
+                connection.is_ready = not connection.is_ready
+                print(f"Player '{connection.user.name}' in lobby '{lobby_id}' toggled ready state to: {connection.is_ready}")
                 await self.broadcast_lobby(lobby_id)
-                return user.is_ready
+                return connection.is_ready
         return None
 
-    def disconnect(self, websocket: WebSocket, lobby_id: str):
+    def disconnect(self, socket: WebSocket, lobby_id: str):
         """Removes a client connection from a specified lobby."""
         if lobby_id in self.lobbies.keys():
             lobby = self.lobbies[lobby_id]
             
-            for user in lobby.users:
-                if user.webSocket == websocket:
-                    lobby.users.remove(user)
-                    print(f"Client {websocket} removed from lobby '{lobby_id}'. Total clients: {len(lobby.users)}")
+            for connection in lobby.connections:
+                if connection.socket == socket:
+                    lobby.connections.remove(connection)
+                    print(f"Client {socket} removed from lobby '{lobby_id}'. Total clients: {len(lobby.connections)}")
                     break
                 
             # Clean up the lobby if it becomes empty
-            if not lobby.users:
+            if not lobby.connections:
                 del self.lobbies[lobby_id]
                 print(f"Lobby '{lobby_id}' is now empty and has been removed.")
 
     async def broadcast(self, lobby: Lobby, message: str, sender: WebSocket):
         """Sends a message to all clients in a lobby, except the sender."""
-        for user in list(lobby.users):
+        for connection in list[Connection](lobby.connections):
             try:
-                await user.webSocket.send_text(message)
+                if(sender != connection.socket) : await connection.socket.send_text(message)
             except WebSocketDisconnect:
-                self.disconnect(user.socket, lobby.id)
+                self.disconnect(connection.socket, lobby.id)
 
     async def broadcast_lobby(self, lobby_id: str):
         lobby = self.lobbies.get(lobby_id)
@@ -100,8 +100,8 @@ class LobbyManager:
             "info" : lobby.to_dict()
         }
         
-        for user in lobby.users:
+        for connection in lobby.connections:
             try:
-                await user.webSocket.send_json(message)
+                await connection.socket.send_json(message)
             except WebSocketDisconnect:
-                self.disconnect(user.webSocket, lobby_id)
+                self.disconnect(connection.socket, lobby_id)
