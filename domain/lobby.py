@@ -1,11 +1,23 @@
 from typing import Set, List
+from dataclasses import dataclass, field
+from domain.connection import Connection
+from domain.game_state import GameState
 from fastapi import WebSocket
 from .user import User
 
+@dataclass
 class Lobby:
     """Represents a single lobby with player limits and connections."""
-    def __init__(self, lobby_id: str, min_players: int, max_players: int):
-        self.lobby_id = lobby_id
-        self.min_players = min_players
-        self.max_players = max_players
-        self.users: List[User] = []
+    id: str
+    max_players: int
+    users: List[User] = field(default_factory=list)
+    host: WebSocket = None
+    game_state: GameState = field(default_factory=GameState)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "max_players": self.max_players,
+            "users": [conn.to_dict() for conn in self.users],
+            "game_state": self.game_state.to_dict(),
+        }
