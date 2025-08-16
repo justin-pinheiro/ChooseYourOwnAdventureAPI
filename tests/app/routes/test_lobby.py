@@ -31,8 +31,8 @@ def test_websocket_connect_and_message():
         assert welcome == f"Welcome to lobby '{lobby_id}'."
         
         lobby_info = websocket.receive_json()
-        assert lobby_info["id"] == lobby_id
-        assert len(lobby_info["connections"]) == 1
+        assert lobby_info["info"]["id"] == lobby_id
+        assert len(lobby_info["info"]["connections"]) == 1
         
         test_message = "Hello, world!"
         websocket.send_text(test_message)
@@ -77,8 +77,8 @@ def test_websocket_broadcast_lobby_info():
         assert welcome1 == f"Welcome to lobby '{lobby_id}'."
         # ws1 should receive lobby info as JSON
         lobby_info_msg1 = ws1.receive_json()
-        assert len(lobby_info_msg1["connections"]) == 1
-        assert lobby_info_msg1["id"] == lobby_id
+        assert len(lobby_info_msg1["info"]["connections"]) == 1
+        assert lobby_info_msg1["info"]["id"] == lobby_id
 
         # Connect second client
         with client.websocket_connect(f"/lobby/join/{lobby_id}") as ws2:
@@ -86,17 +86,14 @@ def test_websocket_broadcast_lobby_info():
             assert welcome2 == f"Welcome to lobby '{lobby_id}'."
             # ws2 should receive lobby info as JSON
             lobby_info_msg2 = ws2.receive_json()
-            assert len(lobby_info_msg2["connections"]) == 2
-            assert lobby_info_msg2["id"] == lobby_id
+            assert len(lobby_info_msg2["info"]["connections"]) == 2
+            assert lobby_info_msg2["info"]["id"] == lobby_id
 
             # ws1 should also receive updated lobby info
             lobby_info_msg1_update = ws1.receive_json()
             assert lobby_info_msg1_update["type"] == "lobby_info"
-            assert lobby_info_msg1_update["info"]["current_players"] == 2
-            assert lobby_info_msg1_update["info"]["lobby_id"] == lobby_id
-            assert len(lobby_info_msg1_update["info"]["players"]) == 2
-            assert lobby_info_msg1_update["info"]["players"][0]["name"] == "Player 1"
-            assert lobby_info_msg1_update["info"]["players"][1]["name"] == "Player 2"
+            assert lobby_info_msg1_update["info"]["id"] == lobby_id
+            assert len(lobby_info_msg1_update["info"]["connections"]) == 2
 
 def test_player_ready_state_toggle():
     """Test that players can toggle their ready state."""
@@ -111,7 +108,7 @@ def test_player_ready_state_toggle():
         initial_lobby_info = websocket.receive_json()
         
         # Verify player starts as not ready
-        assert initial_lobby_info["info"]["players"][0]["is_ready"] == False
+        assert initial_lobby_info["info"]["connections"][0]["is_ready"] == False
         
         # Toggle ready state to True
         websocket.send_text(json.dumps({"type": "toggle_ready"}))
@@ -119,7 +116,7 @@ def test_player_ready_state_toggle():
         # Check updated lobby info
         updated_lobby_info = websocket.receive_json()
         assert updated_lobby_info["type"] == "lobby_info"
-        assert updated_lobby_info["info"]["players"][0]["is_ready"] == True
+        assert updated_lobby_info["info"]["connections"][0]["is_ready"] == True
 
         # Check ready response
         ready_response = websocket.receive_json()
@@ -133,7 +130,7 @@ def test_player_ready_state_toggle():
         # Check updated lobby info
         updated_lobby_info2 = websocket.receive_json()
         assert updated_lobby_info2["type"] == "lobby_info"
-        assert updated_lobby_info2["info"]["players"][0]["is_ready"] == False
+        assert updated_lobby_info2["info"]["connections"][0]["is_ready"] == False
 
         # Check ready response
         ready_response2 = websocket.receive_json()
@@ -166,10 +163,10 @@ def test_multiple_players_ready_state():
             ready_response_1 = ws1.receive_json()  # Player 1 ready response
             
             # Verify Player 1 is ready, Player 2 is not
-            assert lobby_info_1["info"]["players"][0]["is_ready"] == True
-            assert lobby_info_1["info"]["players"][1]["is_ready"] == False
-            assert lobby_info_2["info"]["players"][0]["is_ready"] == True
-            assert lobby_info_2["info"]["players"][1]["is_ready"] == False
+            assert lobby_info_1["info"]["connections"][0]["is_ready"] == True
+            assert lobby_info_1["info"]["connections"][1]["is_ready"] == False
+            assert lobby_info_2["info"]["connections"][0]["is_ready"] == True
+            assert lobby_info_2["info"]["connections"][1]["is_ready"] == False
             assert ready_response_1["type"] == "ready_toggled"
             assert ready_response_1["success"] == True
             assert ready_response_1["is_ready"] == True
@@ -181,10 +178,10 @@ def test_multiple_players_ready_state():
             ready_response_2 = ws2.receive_json()  # Player 2 ready response
             
             # Verify both players are ready
-            assert lobby_info_1["info"]["players"][0]["is_ready"] == True
-            assert lobby_info_1["info"]["players"][1]["is_ready"] == True
-            assert lobby_info_2["info"]["players"][0]["is_ready"] == True
-            assert lobby_info_2["info"]["players"][1]["is_ready"] == True
+            assert lobby_info_1["info"]["connections"][0]["is_ready"] == True
+            assert lobby_info_1["info"]["connections"][1]["is_ready"] == True
+            assert lobby_info_2["info"]["connections"][0]["is_ready"] == True
+            assert lobby_info_2["info"]["connections"][1]["is_ready"] == True
             assert ready_response_2["type"] == "ready_toggled"
             assert ready_response_2["success"] == True
             assert ready_response_2["is_ready"] == True
@@ -196,10 +193,10 @@ def test_multiple_players_ready_state():
             ready_response_1_final = ws1.receive_json()  # Player 1 ready response
             
             # Verify Player 1 is not ready, Player 2 is ready
-            assert lobby_info_1["info"]["players"][0]["is_ready"] == False
-            assert lobby_info_1["info"]["players"][1]["is_ready"] == True
-            assert lobby_info_2["info"]["players"][0]["is_ready"] == False
-            assert lobby_info_2["info"]["players"][1]["is_ready"] == True
+            assert lobby_info_1["info"]["connections"][0]["is_ready"] == False
+            assert lobby_info_1["info"]["connections"][1]["is_ready"] == True
+            assert lobby_info_2["info"]["connections"][0]["is_ready"] == False
+            assert lobby_info_2["info"]["connections"][1]["is_ready"] == True
             assert ready_response_1_final["type"] == "ready_toggled"
             assert ready_response_1_final["success"] == True
             assert ready_response_1_final["is_ready"] == False
@@ -227,10 +224,10 @@ def test_ready_state_preserved_in_lobby_info():
             lobby_info_1 = ws1.receive_json()  # Updated lobby info for player 1
             
             # Both should show Player 1 as ready, Player 2 as not ready
-            assert len(lobby_info_1["info"]["players"]) == 2
-            assert lobby_info_1["info"]["players"][0]["is_ready"] == True
-            assert lobby_info_1["info"]["players"][1]["is_ready"] == False
+            assert len(lobby_info_1["info"]["connections"]) == 2
+            assert lobby_info_1["info"]["connections"][0]["is_ready"] == True
+            assert lobby_info_1["info"]["connections"][1]["is_ready"] == False
             
-            assert len(lobby_info_2["info"]["players"]) == 2
-            assert lobby_info_2["info"]["players"][0]["is_ready"] == True
-            assert lobby_info_2["info"]["players"][1]["is_ready"] == False
+            assert len(lobby_info_2["info"]["connections"]) == 2
+            assert lobby_info_2["info"]["connections"][0]["is_ready"] == True
+            assert lobby_info_2["info"]["connections"][1]["is_ready"] == False
