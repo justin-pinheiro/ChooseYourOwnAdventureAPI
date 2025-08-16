@@ -4,20 +4,213 @@
         "title": "The Crypt of the Serpent King",
         "description": "You and your companions have been tasked with exploring a forgotten crypt said to hold the tomb of an ancient king and a powerful artifact. But beware, the crypt is guarded by a slithering monstrosity.",
         "min_players": 2,
-        "max_players": 4
+        "max_players": 4,
+        "map" : {
+            "areas" : {
+                "entrance": {
+                    "name": "Crypt Entrance",
+                    "description": "A weathered stone archway leads into darkness. Ancient symbols are carved into the walls.",
+                    "connections": ["corridor"]
+                },
+                "corridor": {
+                    "name": "Main Corridor",
+                    "description": "A long hallway with crumbling walls and scattered bones. Torches flicker dimly.",
+                    "connections": ["entrance", "chamber", "guardRoom"]
+                },
+                "chamber": {
+                    "name": "Ritual Chamber",
+                    "description": "A circular room with an altar in the center. Strange runes glow faintly on the floor.",
+                    "connections": ["corridor", "treasureRoom"]
+                },
+                "guardRoom": {
+                    "name": "Guardian's Lair",
+                    "description": "A vast chamber where the serpent king's guardian dwells. The air hisses with danger.",
+                    "connections": ["corridor", "throneRoom"]
+                },
+                "treasureRoom": {
+                    "name": "Treasure Vault",
+                    "description": "A small room filled with ancient coins and artifacts.",
+                    "connections": ["chamber"]
+                },
+                "throneRoom": {
+                    "name": "Serpent King's Tomb",
+                    "description": "The final resting place of the ancient king. A golden sarcophagus dominates the room.",
+                    "connections": ["guardRoom"]
+                }
+            }
+        },
+        "heroes": [
+            {
+                "name": "Thalia the Bold",
+                "class": "Warrior",
+                "description": "A fearless fighter with unmatched courage and a sharp blade."
+            },
+            {
+                "name": "Elric the Wise",
+                "class": "Mage",
+                "description": "A scholarly spellcaster who reads ancient languages and wields powerful magic."
+            },
+            {
+                "name": "Kira Shadowstep",
+                "class": "Rogue",
+                "description": "A nimble thief skilled in stealth and finding hidden passages."
+            },
+            {
+                "name": "Brother Marcus",
+                "class": "Cleric",
+                "description": "A devoted healer who protects the party with divine blessings."
+            }
+        ]
     },
     {
         "id": 2,
         "title": "Escape from the Sky Fortress",
         "description": "Your team has been captured and imprisoned aboard a floating fortress in the clouds. With a massive storm approaching, you must work together to find an escape route before the fortress is destroyed.",
         "min_players": 3,
-        "max_players": 5
+        "max_players": 5,
+        "map" : {
+            "areas" : {
+                "prisonCell": {
+                    "name": "Prison Cell",
+                    "description": "A cramped cell with iron bars. Wind howls through small windows showing the clouds below.",
+                    "connections": ["guardPost"]
+                },
+                "guardPost": {
+                    "name": "Guard Station",
+                    "description": "A checkpoint with abandoned armor and weapons. Lightning flashes outside.",
+                    "connections": ["prisonCell", "mainHall", "armory"]
+                },
+                "mainHall": {
+                    "name": "Great Hall",
+                    "description": "A massive chamber with floating platforms and swirling winds. The storm grows stronger.",
+                    "connections": ["guardPost", "controlRoom", "hangar"]
+                },
+                "armory": {
+                    "name": "Weapons Cache",
+                    "description": "Rows of weapons and protective gear hang on the walls.",
+                    "connections": ["guardPost"]
+                },
+                "controlRoom": {
+                    "name": "Command Center",
+                    "description": "Banks of controls and viewing screens show the approaching storm.",
+                    "connections": ["mainHall", "bridge"]
+                },
+                "hangar": {
+                    "name": "Launch Bay",
+                    "description": "A vast opening to the sky with flying vehicles ready for escape.",
+                    "connections": ["mainHall"]
+                },
+                "bridge": {
+                    "name": "Captain's Bridge",
+                    "description": "The highest point of the fortress with panoramic views of the storm.",
+                    "connections": ["controlRoom"]
+                }
+            }
+        },
+        "heroes": [
+            {
+                "name": "Captain Zara Storm",
+                "class": "Pilot",
+                "description": "An experienced airship captain with nerves of steel and quick reflexes."
+            },
+            {
+                "name": "Magnus Ironwright",
+                "class": "Engineer",
+                "description": "A mechanical genius who can repair or sabotage any device."
+            },
+            {
+                "name": "Vera Windwalker",
+                "class": "Scout",
+                "description": "An agile explorer who navigates treacherous heights with ease."
+            },
+            {
+                "name": "Doctor Aldrich",
+                "class": "Medic",
+                "description": "A calm physician who keeps the team healthy under pressure."
+            },
+            {
+                "name": "Lieutenant Rex",
+                "class": "Soldier",
+                "description": "A disciplined military officer skilled in tactics and combat."
+            }
+        ]
     },
     {
         "id": 3,
         "title": "Mystery on the Starship Voyager",
         "description": "A mysterious signal has drawn your starship to a derelict vessel. As you board to investigate, you find the crew missing and the ship's systems in disarray. Can you uncover the truth before it's too late?",
         "min_players": 2,
-        "max_players": 6
+        "max_players": 6,
+        "map" : {
+            "areas" : {
+                "dockingBay": {
+                    "name": "Docking Bay",
+                    "description": "Your ship connects here. Emergency lights cast eerie shadows across empty landing platforms.",
+                    "connections": ["corridor"]
+                },
+                "corridor": {
+                    "name": "Main Corridor",
+                    "description": "A long hallway with flickering lights and floating debris. Doors line both sides.",
+                    "connections": ["dockingBay", "crewQuarters", "engineRoom", "bridge"]
+                },
+                "crewQuarters": {
+                    "name": "Crew Quarters",
+                    "description": "Personal rooms with belongings scattered about. Signs of hasty departure everywhere.",
+                    "connections": ["corridor", "cafeteria"]
+                },
+                "cafeteria": {
+                    "name": "Mess Hall",
+                    "description": "Tables with half-finished meals. Food containers float in zero gravity.",
+                    "connections": ["crewQuarters", "laboratory"]
+                },
+                "laboratory": {
+                    "name": "Science Lab",
+                    "description": "Complex equipment and specimen containers. Some experiments appear to be still running.",
+                    "connections": ["cafeteria", "engineRoom"]
+                },
+                "engineRoom": {
+                    "name": "Engine Core",
+                    "description": "Massive machinery hums ominously. Warning lights flash across control panels.",
+                    "connections": ["corridor", "laboratory"]
+                },
+                "bridge": {
+                    "name": "Command Bridge",
+                    "description": "The ship's nerve center with dark screens and silent communication systems.",
+                    "connections": ["corridor"]
+                }
+            }
+        },
+        "heroes": [
+            {
+                "name": "Commander Nova",
+                "class": "Leader",
+                "description": "A seasoned space commander who makes tough decisions under pressure."
+            },
+            {
+                "name": "Dr. Quantum",
+                "class": "Scientist",
+                "description": "A brilliant researcher who analyzes alien phenomena and strange readings."
+            },
+            {
+                "name": "Tech Specialist Byte",
+                "class": "Hacker",
+                "description": "A computer expert who can access locked systems and decrypt data."
+            },
+            {
+                "name": "Security Chief Hawk",
+                "class": "Enforcer",
+                "description": "A tough security officer trained for hostile encounters."
+            },
+            {
+                "name": "Engineer Spark",
+                "class": "Technician",
+                "description": "A skilled mechanic who keeps ship systems running smoothly."
+            },
+            {
+                "name": "Psychic Agent Mind",
+                "class": "Telepath",
+                "description": "A mysterious operative with mental abilities to sense hidden dangers."
+            }
+        ]
     }
 ]
