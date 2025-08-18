@@ -1,6 +1,6 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 import traceback
-from application.app.lobby.lobby_manager import LobbyManager
+from application.app.lobby.lobby_manager import LobbyManager, Connection
 
 router = APIRouter()
 manager = LobbyManager()
@@ -43,12 +43,15 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
                                 "success": True,
                                 "is_ready": new_ready_state
                             })
-                        else:
-                            await websocket.send_json({
-                                "type": "ready_toggled", 
-                                "success": False,
-                                "error": "Player not found in lobby"
-                            })
+                            
+                    elif message.get("type") == "start_game":
+                        
+                        try: 
+                            await manager.start_lobby(lobby_id)
+                            await manager.start_new_round(lobby_id)
+                        except Exception as e: 
+                            print(e)
+
                     else:
                         response_message = f"Server received your message: '{data}'"
                         await websocket.send_text(response_message)

@@ -1,6 +1,6 @@
 class Area:
     
-    def __init__(self, id: int, name: str, description: str):
+    def __init__(self, id: int, name: str, description: str = ""):
         self.id = id
         self.name = name
         self.description = description
@@ -69,6 +69,29 @@ class Map:
             for area in self.areas[area_id:]:
                 area.id -= 1
     
+    def to_dict(self) -> dict:
+        area_id_map = {}
+        for i, area in enumerate(self.areas):
+            area_id_map[i] = f"area_{i}"
+        
+        areas_dict = {}
+        for i, area in enumerate(self.areas):
+            area_key = area_id_map[i]
+            connected_keys = []
+            for connected_id in self.connections.get(i, set()):
+                connected_keys.append(area_id_map[connected_id])
+            
+            areas_dict[area_key] = {
+                "name": area.name,
+                "description": area.description,
+                "connections": connected_keys
+            }
+        
+        return {
+            "id": self.id,
+            "areas": areas_dict
+        }
+
     @staticmethod
     def load(map_data) -> "Map":
         areas = []

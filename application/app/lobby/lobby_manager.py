@@ -7,7 +7,7 @@ from fastapi import WebSocket, WebSocketDisconnect, HTTPException
 
 from domain.lobby import Lobby
 from domain.user import User
-
+from domain.chapter import Chapter
 
 class LobbyManager:
     """
@@ -27,6 +27,18 @@ class LobbyManager:
         self.lobbies[lobby_id] = Lobby(lobby_id, max_players)
         print(f"Lobby '{lobby_id}' created with max:{max_players} players.")
         return lobby_id
+    
+    async def start_lobby(self, lobby_id: int):
+        """Start a given lobby"""
+
+        lobby = self.lobbies[lobby_id]
+
+        # if(not self.adventure): raise Exception("No adventure selected")
+
+        all_players_ready = all(connection.is_ready for connection in lobby.connections)
+        if not all_players_ready: raise Exception("All players must be ready")
+
+        lobby.game_state.started = True
 
     async def connect(self, socket: WebSocket, lobby_id: str):
         """Adds a new client connection to a specified lobby."""
@@ -81,6 +93,28 @@ class LobbyManager:
             if not lobby.connections:
                 del self.lobbies[lobby_id]
                 print(f"Lobby '{lobby_id}' is now empty and has been removed.")
+
+    async def start_new_round(self, lobby_id: int):
+        """Start a new round, and send a message to inform all players"""
+        
+        for i, connection in enumerate(self.lobbies[lobby_id].connections):
+            
+            text = "Testing"
+            choices = ["Choix 1", "Choix 2", "Choix 3"]
+            self.lobbies[lobby_id].game_state.chapters.append(Chapter(text, choices))
+
+            message = {
+                "type" : "new_round",
+                "info" : {
+                    "text" : text,
+                    "choices" : choices,
+                }
+            }
+            
+            try:
+                await connection.socket.send_json(message)
+            except WebSocketDisconnect:
+                self.disconnect(connection.socket, lobby_id)
 
     async def broadcast(self, lobby: Lobby, message: str, sender: WebSocket):
         """Sends a message to all clients in a lobby, except the sender."""
