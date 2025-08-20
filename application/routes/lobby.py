@@ -44,7 +44,7 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
                                 "is_ready": new_ready_state
                             })
                             
-                    elif message.get("type") == "start_game":
+                    elif message.get("type") == "start_adventure":
                         
                         try: 
                             await manager.start_lobby(lobby_id)
@@ -52,10 +52,17 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
                         except Exception as e: 
                             print(e)
 
+                    elif message.get("type") == "submit_choice":
+                       
+                        try: 
+                            await manager.submit_choice(lobby_id, websocket, message)
+                        except Exception as e: 
+                            print(e)
+
                     else:
                         response_message = f"Server received your message: '{data}'"
                         await websocket.send_text(response_message)
-                        print(f"Sent response to client in '{lobby.id}': {response_message}")
+                        print(f"Sent response to client in '{lobby.id}': '{response_message}'")
                         
                 except json.JSONDecodeError:
                     

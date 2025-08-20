@@ -1,8 +1,4 @@
-from typing import Set, List
-from dataclasses import dataclass, field
-from domain.connection import Connection
-from fastapi import WebSocket
-
+from dataclasses import dataclass
 @dataclass
 class Chapter:
     """Represents a single lobby with player limits and connections."""

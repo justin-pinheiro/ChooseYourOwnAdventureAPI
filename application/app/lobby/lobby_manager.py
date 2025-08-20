@@ -40,6 +40,21 @@ class LobbyManager:
 
         lobby.game_state.started = True
 
+        for connection in list[Connection](lobby.connections):
+
+            message = {
+                "type" : "start_adventure",
+                "info" : {
+                    "success": True,
+                }
+            }            
+
+            try:
+                print("Sending:", message)
+                await connection.socket.send_json(message)
+            except WebSocketDisconnect:
+                self.disconnect(connection.socket, lobby.id)
+
     async def connect(self, socket: WebSocket, lobby_id: str):
         """Adds a new client connection to a specified lobby."""
         print(f"lobbies ids: {self.lobbies.keys()}")
@@ -94,29 +109,72 @@ class LobbyManager:
                 del self.lobbies[lobby_id]
                 print(f"Lobby '{lobby_id}' is now empty and has been removed.")
 
+    async def submit_choice(self, lobby_id: str, sender : WebSocket, message):
+        
+        sender_name = "Unknown"
+        for connection in self.lobbies[lobby_id].connections:
+            if connection.socket == sender:
+                sender_name = connection.user.name
+                break
+        
+        print(f"Lobby '{lobby_id}' : {sender_name} submitted : {message}")
+
+        lobby = self.lobbies.get(lobby_id)
+        if not lobby:
+            return
+        
+        sender_index : int = None
+        for i, connection in enumerate(lobby.connections):
+            if connection.socket == sender: sender_index = i
+            break
+        
+        if sender_index is not None:
+            chapters = lobby.game_state.chapters
+            if sender_index < len(chapters):
+                chapters[sender_index].choice = message["choice_index"]
+
+        if all(chapter.choice != -1 for chapter in chapters):
+            await self.start_new_round(lobby_id)
+        else:
+            remaining_players = sum(1 for chapter in chapters if chapter.choice == -1)
+            print(f"Waiting for {remaining_players} more players to make their choice")
+        
+
     async def start_new_round(self, lobby_id: int):
         """Start a new round, and send a message to inform all players"""
         
-        for i, connection in enumerate(self.lobbies[lobby_id].connections):
+        lobby = self.lobbies.get(lobby_id)
+        if not lobby:
+            return
+
+        print(f"Starting round {lobby.game_state.round}!")
+
+        for i, connection in enumerate(lobby.connections):
             
             text = "Testing"
             choices = ["Choix 1", "Choix 2", "Choix 3"]
-            self.lobbies[lobby_id].game_state.chapters.append(Chapter(text, choices))
+            
+            lobby.game_state.chapters.clear()
+            lobby.game_state.chapters.append(Chapter(text, choices))
+
+            lobby.game_state.round += 1
 
             message = {
                 "type" : "new_round",
                 "info" : {
+                    "round_index" : lobby.game_state.round,
                     "text" : text,
                     "choices" : choices,
                 }
             }
             
             try:
+                print(f"Sent response to client in '{lobby_id}': {message}")
                 await connection.socket.send_json(message)
             except WebSocketDisconnect:
                 self.disconnect(connection.socket, lobby_id)
 
-    async def broadcast(self, lobby: Lobby, message: str, sender: WebSocket):
+    async def broadcast(self, lobby: Lobby, message: str, sender: WebSocket = None):
         """Sends a message to all clients in a lobby, except the sender."""
         for connection in list[Connection](lobby.connections):
             try:
@@ -127,7 +185,7 @@ class LobbyManager:
     async def broadcast_lobby(self, lobby_id: str):
         lobby = self.lobbies.get(lobby_id)
         if not lobby:
-            return # TO-DO handle exception
+            return
         
         message = {
             "type" : "lobby_info",
@@ -136,6 +194,7 @@ class LobbyManager:
         
         for connection in lobby.connections:
             try:
+                print(f"Broadcast : {message}")
                 await connection.socket.send_json(message)
             except WebSocketDisconnect:
                 self.disconnect(connection.socket, lobby_id)
