@@ -70,6 +70,10 @@ class LobbyManager:
         print(f"Lobby '{lobby_id}' created with max:{max_players} players.")
         return lobby_id
     
+    def get_lobby(self, lobby_id: str) -> Lobby:
+        """Get a lobby by its ID."""
+        return self.lobbies.get(lobby_id)
+    
     async def start_lobby(self, lobby_id: int):
         """Start a given lobby"""
 
@@ -358,6 +362,7 @@ class LobbyManager:
                 print(f"[DEBUG] Using first chapter context for {connection.user.name}")
             
             print(f"[DEBUG] Calling LLM to generate chapter for {connection.user.name}")
+            
             # Generate complete chapter (text + choices) in single LLM call
             chapter = await self.llm_client.generate_chapter(
                 prompt=f"""Generate the next chapter for this {lobby.game_state.adventure.title} adventure. 
