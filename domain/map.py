@@ -13,10 +13,8 @@ class Map:
         self.connections = connections or {}
     
     def add_connection(self, area_id_one: int, area_id_two: int):
-        if area_id_one not in self.connections:
-            self.connections[area_id_one] = set()
-        if area_id_two not in self.connections:
-            self.connections[area_id_two] = set()
+        if area_id_one not in self.connections: self.connections[area_id_one] = set()
+        if area_id_two not in self.connections: self.connections[area_id_two] = set()
         
         self.connections[area_id_one].add(area_id_two)
         self.connections[area_id_two].add(area_id_one)

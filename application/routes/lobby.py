@@ -20,6 +20,7 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
     The main WebSocket endpoint. Clients connect to this route using a lobby ID.
     """
     try:
+        print("Connecting new player to lobby ", lobby_id)
         lobby = await manager.connect(websocket, lobby_id)
         
         await websocket.send_text(f"Welcome to lobby '{lobby.id}'.")

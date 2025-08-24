@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import uuid
 from domain.adventure import Adventure
 from domain.chapter import Chapter
 
@@ -8,11 +9,10 @@ class GameState:
     started: bool = False
     round: int = 0
     adventure: Adventure | None = None
-    chapters: list[Chapter] = field(default_factory=list)
+    chapters: dict[uuid.UUID, list[Chapter]] = field(default_factory=dict)
 
     def to_dict(self):
         return {
             "started": self.started,
             "round": self.round,
-            "adventure": self.adventure,
         }
