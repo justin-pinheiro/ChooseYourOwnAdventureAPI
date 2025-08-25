@@ -1,5 +1,4 @@
-from adventure import Adventure
-from map import Area, Map
+from domain.map import Area, Map
 
 from dataclasses import dataclass
 
@@ -14,3 +13,13 @@ class Adventure:
     minPlayers: int
     maxPlayers: int
     map: Map
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'title': self.title,
+            'description': self.description,
+            'minPlayers': self.minPlayers,
+            'maxPlayers': self.maxPlayers,
+            'map': self.map.to_dict()
+        }

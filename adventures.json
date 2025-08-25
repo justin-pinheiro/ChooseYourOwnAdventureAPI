@@ -5,6 +5,7 @@
         "description": "You and your companions have been tasked with exploring a forgotten crypt said to hold the tomb of an ancient king and a powerful artifact. But beware, the crypt is guarded by a slithering monstrosity.",
         "min_players": 2,
         "max_players": 4,
+        "image": "crypt_serpent_king.png",
         "map" : {
             "areas" : {
                 "entrance": {
@@ -68,6 +69,7 @@
         "description": "Your team has been captured and imprisoned aboard a floating fortress in the clouds. With a massive storm approaching, you must work together to find an escape route before the fortress is destroyed.",
         "min_players": 3,
         "max_players": 5,
+        "image": "sky_fortress_escape.png",
         "map" : {
             "areas" : {
                 "prisonCell": {
@@ -141,6 +143,7 @@
         "description": "A mysterious signal has drawn your starship to a derelict vessel. As you board to investigate, you find the crew missing and the ship's systems in disarray. Can you uncover the truth before it's too late?",
         "min_players": 2,
         "max_players": 6,
+        "image": "starship_voyager_mystery.png",
         "map" : {
             "areas" : {
                 "dockingBay": {

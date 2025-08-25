@@ -231,3 +231,42 @@ def test_ready_state_preserved_in_lobby_info():
             assert len(lobby_info_2["info"]["connections"]) == 2
             assert lobby_info_2["info"]["connections"][0]["is_ready"] == True
             assert lobby_info_2["info"]["connections"][1]["is_ready"] == False
+
+def test_start_new_round():
+    import json
+    
+    create_response = client.post("/lobby/create?max_players=2")
+    lobby_id = create_response.json()["lobby_id"]
+    
+    with client.websocket_connect(f"/lobby/join/{lobby_id}") as websocket1:
+        websocket1.receive_text()
+        websocket1.receive_json()
+        
+        with client.websocket_connect(f"/lobby/join/{lobby_id}") as websocket2:
+            websocket2.receive_text()
+            websocket2.receive_json()
+            websocket1.receive_json()
+            
+            websocket1.send_text(json.dumps({"type": "toggle_ready"}))
+            websocket1.receive_json()
+            websocket1.receive_json()
+            
+            websocket2.send_text(json.dumps({"type": "toggle_ready"}))
+            websocket2.receive_json()
+            websocket2.receive_json()
+
+            websocket1.send_text(json.dumps({"type": "start_game"}))
+            
+            websocket1.receive_json()
+            websocket2.receive_json()
+            
+            new_round_message1 = websocket1.receive_json()
+            new_round_message2 = websocket2.receive_json()
+            
+            assert new_round_message1["type"] == "new_round"
+            assert "text" in new_round_message1["info"]
+            assert "choices" in new_round_message1["info"]
+            
+            assert new_round_message2["type"] == "new_round"
+            assert "text" in new_round_message2["info"]
+            assert "choices" in new_round_message2["info"]
