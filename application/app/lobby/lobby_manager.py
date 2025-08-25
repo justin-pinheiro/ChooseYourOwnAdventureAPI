@@ -9,6 +9,7 @@ from domain.user import User
 from domain.chapter import Chapter
 from domain.adventure import Adventure
 from domain.map import Map, Area
+from utils.adventure_loader import get_adventure_by_id
 
 from utils.llm_client import OpenRouterClient
 
@@ -21,51 +22,29 @@ class LobbyManager:
         self.lobbies: Dict[str, Lobby] = {}
         self.llm_client = OpenRouterClient()
 
-    def create_lobby(self, max_players: int) -> str:
+    def create_lobby(self, max_players: int, adventure_id: int) -> str:
         """Generates a unique ID and creates a new lobby."""
         
         if max_players < 1:
             raise HTTPException(status_code=400, detail="Invalid player limits: max_players must be at least 1")
         
         lobby_id = str(uuid.uuid4())[:8]
-        self.lobbies[lobby_id] = Lobby(lobby_id, max_players)
+        self.lobbies[lobby_id] = Lobby(lobby_id, max_players, adventure_id)
         
-        # ==================================
-        # TODO : To remove later. For now, creating default adventure
-        # ==================================
-        
-        entrance_hall = Area(0, "Entrance Hall", "A grand foyer with a dusty chandelier hanging ominously overhead. Moonlight filters through cracked windows, casting eerie shadows on the marble floor.")
-        living_room = Area(1, "Living Room", "Furniture covered in white sheets creates ghostly silhouettes. A cold fireplace holds only ashes, and family portraits seem to watch your every move.")
-        kitchen = Area(2, "Kitchen", "Rusted pots and pans hang from hooks, and the old stove creaks in the silence. A foul smell emanates from the pantry.")
-        dining_room = Area(3, "Dining Room", "A long table set for dinner, though the food has long since rotted away. Candles flicker mysteriously despite no visible flame source.")
-        library = Area(4, "Library", "Towering bookshelves filled with ancient tomes. Some books seem to whisper when you pass by, and ladder wheels creak on their own.")
-        master_bedroom = Area(5, "Master Bedroom", "A four-poster bed with tattered curtains. The mirror on the vanity shows reflections that don't quite match reality.")
-        attic = Area(6, "Attic", "Cobwebs hang like curtains from the rafters. Old trunks and furniture create a maze of shadows and hiding places.")
-        basement = Area(7, "Basement", "Stone walls weep with moisture. Chains hang from the ceiling, and strange symbols are carved into the floor.")
-        
-        haunted_map = Map(0, [entrance_hall, living_room, kitchen, dining_room, library, master_bedroom, attic, basement])
-        
-        haunted_map.add_connection(0, 1)  # Entrance Hall <-> Living Room
-        haunted_map.add_connection(0, 3)  # Entrance Hall <-> Dining Room
-        haunted_map.add_connection(0, 7)  # Entrance Hall <-> Basement (secret passage)
-        haunted_map.add_connection(1, 2)  # Living Room <-> Kitchen
-        haunted_map.add_connection(1, 4)  # Living Room <-> Library
-        haunted_map.add_connection(2, 3)  # Kitchen <-> Dining Room
-        haunted_map.add_connection(3, 4)  # Dining Room <-> Library
-        haunted_map.add_connection(4, 5)  # Library <-> Master Bedroom
-        haunted_map.add_connection(5, 6)  # Master Bedroom <-> Attic
-        haunted_map.add_connection(7, 2)  # Basement <-> Kitchen (cellar access)
-        
-        self.lobbies[lobby_id].game_state.adventure = Adventure(
-            0,
-            "The haunted house",
-            "Whispers of an abandoned mansion on the edge of town have circulated for generations. Locals say its windows glow at night, and strange figures roam the halls when the moon is high. When a mysterious letter invites you to spend a single night inside, you and your companions must uncover the secrets buried within its crumbling walls. Shadows move on their own, the air hums with restless spirits, and every door could lead to salvation… or doom. Will you survive the horrors lurking in the dark—or become part of the house's curse forever?",
-            1,
-            5,
-            haunted_map
-        )
-        
-        # ==================================
+        # Load the adventure data based on the provided adventure_id
+        try:
+            adventure = get_adventure_by_id(adventure_id)
+            if not adventure:
+                raise HTTPException(status_code=404, detail=f"Adventure with ID {adventure_id} not found")
+            
+            self.lobbies[lobby_id].game_state.adventure = adventure
+            print(f"Lobby '{lobby_id}' created with adventure: '{adventure.title}' (ID: {adventure_id})")
+            
+        except Exception as e:
+            # Clean up the lobby if adventure loading fails
+            if lobby_id in self.lobbies:
+                del self.lobbies[lobby_id]
+            raise HTTPException(status_code=500, detail=f"Failed to load adventure: {str(e)}")
         
         print(f"Lobby '{lobby_id}' created with max:{max_players} players.")
         return lobby_id
@@ -73,6 +52,35 @@ class LobbyManager:
     def get_lobby(self, lobby_id: str) -> Lobby:
         """Get a lobby by its ID."""
         return self.lobbies.get(lobby_id)
+    
+    def get_all_lobbies(self) -> Dict:
+        """Get information about all existing lobbies."""
+        lobbies_info = []
+        
+        for lobby_id, lobby in self.lobbies.items():
+            lobby_info = {
+                "id": lobby.id,
+                "max_players": lobby.max_players,
+                "current_players": len(lobby.connections),
+                "adventure_id": lobby.adventure_id,
+                "adventure_title": lobby.game_state.adventure.title if lobby.game_state.adventure else None,
+                "game_started": lobby.game_state.started,
+                "current_round": lobby.game_state.round,
+                "players": [
+                    {
+                        "name": conn.user.name,
+                        "is_ready": conn.is_ready
+                    } for conn in lobby.connections
+                ],
+                "is_full": len(lobby.connections) >= lobby.max_players,
+                "can_join": len(lobby.connections) < lobby.max_players and not lobby.game_state.started
+            }
+            lobbies_info.append(lobby_info)
+        
+        return {
+            "total_lobbies": len(self.lobbies),
+            "lobbies": lobbies_info
+        }
     
     async def start_lobby(self, lobby_id: int):
         """Start a given lobby"""
@@ -93,7 +101,7 @@ class LobbyManager:
                 "info" : {
                     "success": True,
                 }
-            }            
+            }
 
             try:
                 print("Sending:", message)
@@ -339,13 +347,26 @@ class LobbyManager:
                     
                     Player's Last Choice: {last_chapter.possiblities[last_chapter.choice] if last_chapter.choice != -1 and last_chapter.choice < len(last_chapter.possiblities) else "No choice made yet"}
                     
-                    Current area : Entrance Hall
+                    Available Areas in this adventure:
+                    {chr(10).join([f"- {area.name}: {area.description}" for area in lobby.game_state.adventure.map.areas])}
                     
                     Connected Areas:
-                    {chr(10).join([f"- {lobby.game_state.adventure.map.areas[conn_id].name}" for conn_id in lobby.game_state.adventure.map.get_connected_areas(0)])}
+                    {chr(10).join([f"- {area.name} connects to: {', '.join([lobby.game_state.adventure.map.areas[conn_id].name for conn_id in lobby.game_state.adventure.map.get_connected_areas(area.id)])} " for area in lobby.game_state.adventure.map.areas if lobby.game_state.adventure.map.get_connected_areas(area.id)])}
                 """
                 print(f"[DEBUG] Using previous chapter context for {connection.user.name}")
             else:
+                # Use the first area as starting point
+                starting_area = lobby.game_state.adventure.map.areas[0] if lobby.game_state.adventure.map.areas else None
+                starting_area_info = f"Current area: {starting_area.name}" if starting_area else "Starting the adventure"
+                connected_areas_info = ""
+                
+                if starting_area:
+                    connected_areas = lobby.game_state.adventure.map.get_connected_areas(starting_area.id)
+                    if connected_areas:
+                        connected_areas_info = f"""
+                    Connected Areas from {starting_area.name}:
+                    {chr(10).join([f"- {lobby.game_state.adventure.map.areas[conn_id].name}" for conn_id in connected_areas])}"""
+                
                 story_context = f"""
                     Adventure: {lobby.game_state.adventure.title}
                     {lobby.game_state.adventure.description}
@@ -354,10 +375,11 @@ class LobbyManager:
                     
                     This is the beginning of the adventure. The player is starting their journey.
                     
-                    Current area : Entrance Hall
+                    {starting_area_info}
                     
-                    Connected Areas:
-                    {chr(10).join([f"- {lobby.game_state.adventure.map.areas[conn_id].name}" for conn_id in lobby.game_state.adventure.map.get_connected_areas(0)])}
+                    Available Areas in this adventure:
+                    {chr(10).join([f"- {area.name}: {area.description}" for area in lobby.game_state.adventure.map.areas])}
+                    {connected_areas_info}
                 """
                 print(f"[DEBUG] Using first chapter context for {connection.user.name}")
             
@@ -367,14 +389,14 @@ class LobbyManager:
             chapter = await self.llm_client.generate_chapter(
                 prompt=f"""Generate the next chapter for this {lobby.game_state.adventure.title} adventure. 
                 
-                Create an immersive, atmospheric scene that fits the haunted mansion setting. The chapter should:
-                - Be 2-4 sentences long and set a spooky, engaging mood
-                - Reference specific areas from the mansion map when appropriate
-                - Build tension and mystery
+                Create an immersive, atmospheric scene that fits the adventure setting. The chapter should:
+                - Be 2-4 sentences long and set an engaging mood appropriate to the adventure theme
+                - Reference specific areas from the adventure map when appropriate
+                - Build tension and atmosphere suitable for the adventure type
                 - Lead naturally to meaningful player choices
                 - Follow the story direction provided in the context
                 
-                Remember this is a horror/mystery adventure in an abandoned haunted mansion.""",
+                Adventure setting: {lobby.game_state.adventure.description}""",
                 context=story_context,
                 num_choices=3
             )

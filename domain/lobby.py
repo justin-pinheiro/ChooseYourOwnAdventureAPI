@@ -9,6 +9,7 @@ class Lobby:
     """Represents a single lobby with player limits and connections."""
     id: str
     max_players: int
+    adventure_id : int = None
     connections: List[Connection] = field(default_factory=list)
     host: WebSocket = None
     game_state: GameState = field(default_factory=GameState)
@@ -18,5 +19,6 @@ class Lobby:
             "id": self.id,
             "max_players": self.max_players,
             "connections": [conn.to_dict() for conn in self.connections],
+            "adventure_id" : self.adventure_id,
             "game_state": self.game_state.to_dict(),
         }

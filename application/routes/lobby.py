@@ -8,13 +8,59 @@ lobby_manager = LobbyManager()
 game_manager = GameManager(lobby_manager)
 
 @router.post("/create")
-async def create_lobby_endpoint(max_players: int):
+async def create_lobby_endpoint(max_players: int, adventure_id : int):
     """
     An HTTP endpoint to create a new lobby and return its ID.
     The client can specify max_players in the request body.
     """
-    lobby_id = lobby_manager.create_lobby(max_players)
+    lobby_id = lobby_manager.create_lobby(max_players, adventure_id)
     return {"lobby_id": lobby_id}
+
+@router.get("/")
+async def get_all_lobbies():
+    """
+    Get information about all existing lobbies.
+    Returns a list of lobbies with their current status, players, and game state.
+    """
+    try:
+        return lobby_manager.get_all_lobbies()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve lobbies: {str(e)}")
+
+@router.get("/{lobby_id}")
+async def get_lobby_info(lobby_id: str):
+    """
+    Get detailed information about a specific lobby.
+    """
+    try:
+        lobby = lobby_manager.get_lobby(lobby_id)
+        if not lobby:
+            raise HTTPException(status_code=404, detail="Lobby not found")
+        
+        return {
+            "lobby": {
+                "id": lobby.id,
+                "max_players": lobby.max_players,
+                "current_players": len(lobby.connections),
+                "adventure_id": lobby.adventure_id,
+                "adventure_title": lobby.game_state.adventure.title if lobby.game_state.adventure else None,
+                "adventure_description": lobby.game_state.adventure.description if lobby.game_state.adventure else None,
+                "game_started": lobby.game_state.started,
+                "current_round": lobby.game_state.round,
+                "players": [
+                    {
+                        "name": conn.user.name,
+                        "is_ready": conn.is_ready
+                    } for conn in lobby.connections
+                ],
+                "is_full": len(lobby.connections) >= lobby.max_players,
+                "can_join": len(lobby.connections) < lobby.max_players and not lobby.game_state.started
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve lobby info: {str(e)}")
 
 @router.websocket("/join/{lobby_id}")
 async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
