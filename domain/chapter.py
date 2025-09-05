@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 @dataclass
 class Chapter:
-    """Represents a single lobby with player limits and connections."""
+    """Represents a within a story with a te ."""
     text: str
     possiblities: list[str]
     choice: int | None = -1
@@ -13,3 +13,4 @@ class Chapter:
             "results": [possiblity for possiblity in self.possiblities],
             "choice": self.choice
         }
+    

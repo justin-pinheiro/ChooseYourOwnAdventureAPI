@@ -1,7 +1,7 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 import traceback
-from application.app.lobby.lobby_manager import LobbyManager
-from application.app.lobby.game_manager import GameManager
+from application.app.lobby_manager import LobbyManager
+from application.app.game_manager import GameManager
 
 router = APIRouter()
 lobby_manager = LobbyManager()
@@ -37,26 +37,7 @@ async def get_lobby_info(lobby_id: str):
         if not lobby:
             raise HTTPException(status_code=404, detail="Lobby not found")
         
-        return {
-            "lobby": {
-                "id": lobby.id,
-                "max_players": lobby.max_players,
-                "current_players": len(lobby.connections),
-                "adventure_id": lobby.adventure_id,
-                "adventure_title": lobby.game_state.adventure.title if lobby.game_state.adventure else None,
-                "adventure_description": lobby.game_state.adventure.description if lobby.game_state.adventure else None,
-                "game_started": lobby.game_state.started,
-                "current_round": lobby.game_state.round,
-                "players": [
-                    {
-                        "name": conn.user.name,
-                        "is_ready": conn.is_ready
-                    } for conn in lobby.connections
-                ],
-                "is_full": len(lobby.connections) >= lobby.max_players,
-                "can_join": len(lobby.connections) < lobby.max_players and not lobby.game_state.started
-            }
-        }
+        return lobby.to_dict()
     except HTTPException:
         raise
     except Exception as e:

@@ -3,9 +3,6 @@ import uuid
 from domain.connection import Connection
 from fastapi import WebSocket, WebSocketDisconnect
 
-from domain.lobby import Lobby
-from domain.chapter import Chapter
-from utils.llm_client import OpenRouterClient
 from .story_manager import StoryManager
 
 
@@ -15,7 +12,6 @@ class GameManager:
     """
     def __init__(self, lobby_manager):
         self.lobby_manager = lobby_manager
-        self.llm_client = OpenRouterClient()
         self.story_manager = StoryManager()
 
     async def start_lobby(self, lobby_id: str):

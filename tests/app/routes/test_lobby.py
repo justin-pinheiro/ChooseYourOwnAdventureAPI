@@ -1,4 +1,6 @@
-from application.routes.lobby import manager
+from unittest.mock import patch
+from application.routes.lobby import lobby_manager
+from domain.adventure import Adventure
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from main import app
@@ -6,27 +8,34 @@ import pytest
 
 client = TestClient(app)
 
-def test_create_lobby_success():
+def test_create_lobby_success(monkeypatch):
     """Test that a lobby can be created with valid player limits."""
-    response = client.post("/lobby/create?max_players=4")
+    with patch(
+        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
+        return_value=Adventure(1, "title", "description", 2, 4, None),
+    ):
+        response = client.post(
+            "/lobbies/create",
+            params={"max_players": 4, "adventure_id": 1}
+        )
     assert response.status_code == 200
     assert "lobby_id" in response.json()
     lobby_id = response.json()["lobby_id"]
-    assert lobby_id in manager.lobbies
+    assert lobby_id in lobby_manager.lobbies
 
 def test_create_lobby_invalid_limits():
     """Test that a lobby cannot be created with invalid limits."""
-    response = client.post("/lobby/create?max_players=0")
+    response = client.post("/lobbies/create?max_players=0")
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid player limits: max_players must be at least 1"
 
 def test_websocket_connect_and_message():
     """Test that a client can connect to a lobby and send a message."""
-    create_response = client.post("/lobby/create?max_players=4")
+    create_response = client.post("/lobbies/create?max_players=4")
     lobby_id = create_response.json()["lobby_id"]
-    assert lobby_id in manager.lobbies
+    assert lobby_id in lobby_manager.lobbies
 
-    with client.websocket_connect(f"/lobby/join/{lobby_id}") as websocket:
+    with client.websocket_connect(f"/lobbies/join/{lobby_id}") as websocket:
         welcome = websocket.receive_text()
         assert welcome == f"Welcome to lobby '{lobby_id}'."
         
@@ -44,21 +53,21 @@ def test_websocket_join_non_existent_lobby():
     """Test that a connection to a non-existent lobby fails."""
     non_existent_id = "nonexistent"
     with pytest.raises(WebSocketDisconnect) as excinfo:
-        with client.websocket_connect(f"/lobby/join/{non_existent_id}") as websocket:
+        with client.websocket_connect(f"/lobbies/join/{non_existent_id}") as websocket:
             websocket.receive_text()
     assert excinfo.value.code == 1008
     assert excinfo.value.reason == "Lobby not found"
 
 def test_websocket_join_full_lobby():
     """Test that a connection to a full lobby fails."""
-    create_response = client.post("/lobby/create?max_players=1")
+    create_response = client.post("/lobbies/create?max_players=1")
     lobby_id = create_response.json()["lobby_id"]
     
-    with client.websocket_connect(f"/lobby/join/{lobby_id}") as ws1:
+    with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws1:
         ws1.receive_text()
         
         with pytest.raises(WebSocketDisconnect) as excinfo:
-            with client.websocket_connect(f"/lobby/join/{lobby_id}") as ws2:
+            with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws2:
                 ws2.receive_text()
         
         assert excinfo.value.code == 1008
@@ -66,13 +75,13 @@ def test_websocket_join_full_lobby():
 
 def test_websocket_broadcast_lobby_info():
     """Test that all clients receive updated lobby info when a new client joins."""
-    create_response = client.post("/lobby/create?max_players=4")
+    create_response = client.post("/lobbies/create?max_players=4")
     assert create_response.status_code == 200
     lobby_id = create_response.json()["lobby_id"]
-    assert lobby_id in manager.lobbies
+    assert lobby_id in lobby_manager.lobbies
 
     # Connect first client
-    with client.websocket_connect(f"/lobby/join/{lobby_id}") as ws1:
+    with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws1:
         welcome1 = ws1.receive_text()
         assert welcome1 == f"Welcome to lobby '{lobby_id}'."
         # ws1 should receive lobby info as JSON
@@ -81,7 +90,7 @@ def test_websocket_broadcast_lobby_info():
         assert lobby_info_msg1["info"]["id"] == lobby_id
 
         # Connect second client
-        with client.websocket_connect(f"/lobby/join/{lobby_id}") as ws2:
+        with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws2:
             welcome2 = ws2.receive_text()
             assert welcome2 == f"Welcome to lobby '{lobby_id}'."
             # ws2 should receive lobby info as JSON
@@ -99,10 +108,10 @@ def test_player_ready_state_toggle():
     """Test that players can toggle their ready state."""
     import json
     
-    create_response = client.post("/lobby/create?min_players=2&max_players=4")
+    create_response = client.post("/lobbies/create?min_players=2&max_players=4")
     lobby_id = create_response.json()["lobby_id"]
     
-    with client.websocket_connect(f"/lobby/join/{lobby_id}") as websocket:
+    with client.websocket_connect(f"/lobbies/join/{lobby_id}") as websocket:
         # Skip welcome message and initial lobby info
         websocket.receive_text()
         initial_lobby_info = websocket.receive_json()
@@ -142,15 +151,15 @@ def test_multiple_players_ready_state():
     """Test that multiple players can independently toggle their ready states."""
     import json
     
-    create_response = client.post("/lobby/create?min_players=2&max_players=4")
+    create_response = client.post("/lobbies/create?min_players=2&max_players=4")
     lobby_id = create_response.json()["lobby_id"]
     
-    with client.websocket_connect(f"/lobby/join/{lobby_id}") as ws1:
+    with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws1:
         # Player 1 connects
         ws1.receive_text()  # Welcome message
         ws1.receive_json()  # Initial lobby info
         
-        with client.websocket_connect(f"/lobby/join/{lobby_id}") as ws2:
+        with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws2:
             # Player 2 connects
             ws2.receive_text()  # Welcome message
             ws2.receive_json()  # Initial lobby info
@@ -205,10 +214,10 @@ def test_ready_state_preserved_in_lobby_info():
     """Test that ready states are properly included in all lobby info broadcasts."""
     import json
     
-    create_response = client.post("/lobby/create?min_players=1&max_players=3")
+    create_response = client.post("/lobbies/create?min_players=1&max_players=3")
     lobby_id = create_response.json()["lobby_id"]
     
-    with client.websocket_connect(f"/lobby/join/{lobby_id}") as ws1:
+    with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws1:
         ws1.receive_text()  # Welcome
         ws1.receive_json()  # Initial lobby info
         
@@ -218,7 +227,7 @@ def test_ready_state_preserved_in_lobby_info():
         ws1.receive_json()  # Ready response
         
         # Player 2 joins
-        with client.websocket_connect(f"/lobby/join/{lobby_id}") as ws2:
+        with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws2:
             ws2.receive_text()  # Welcome
             lobby_info_2 = ws2.receive_json()  # Lobby info for player 2
             lobby_info_1 = ws1.receive_json()  # Updated lobby info for player 1
@@ -235,14 +244,14 @@ def test_ready_state_preserved_in_lobby_info():
 def test_start_new_round():
     import json
     
-    create_response = client.post("/lobby/create?max_players=2")
+    create_response = client.post("/lobbies/create?max_players=2")
     lobby_id = create_response.json()["lobby_id"]
     
-    with client.websocket_connect(f"/lobby/join/{lobby_id}") as websocket1:
+    with client.websocket_connect(f"/lobbies/join/{lobby_id}") as websocket1:
         websocket1.receive_text()
         websocket1.receive_json()
         
-        with client.websocket_connect(f"/lobby/join/{lobby_id}") as websocket2:
+        with client.websocket_connect(f"/lobbies/join/{lobby_id}") as websocket2:
             websocket2.receive_text()
             websocket2.receive_json()
             websocket1.receive_json()

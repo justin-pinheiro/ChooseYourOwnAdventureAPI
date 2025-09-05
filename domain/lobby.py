@@ -16,9 +16,22 @@ class Lobby:
 
     def to_dict(self):
         return {
-            "id": self.id,
-            "max_players": self.max_players,
-            "connections": [conn.to_dict() for conn in self.connections],
-            "adventure_id" : self.adventure_id,
-            "game_state": self.game_state.to_dict(),
+            "lobby": {
+                "id": self.id,
+                "max_players": self.max_players,
+                "current_players": len(self.connections),
+                "adventure_id": self.adventure_id,
+                "adventure_title": self.game_state.adventure.title if self.game_state.adventure else None,
+                "adventure_description": self.game_state.adventure.description if self.game_state.adventure else None,
+                "game_started": self.game_state.started,
+                "current_round": self.game_state.round,
+                "players": [
+                    {
+                        "name": conn.user.name,
+                        "is_ready": conn.is_ready
+                    } for conn in self.connections
+                ],
+                "is_full": len(self.connections) >= self.max_players,
+                "can_join": len(self.connections) < self.max_players and not self.game_state.started
+            }
         }

@@ -12,5 +12,5 @@ app = FastAPI()
 # Mount static files for serving images
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-app.include_router(lobby.router, prefix="/lobby")
+app.include_router(lobby.router, prefix="/lobbies")
 app.include_router(adventure.router, prefix="/adventures")

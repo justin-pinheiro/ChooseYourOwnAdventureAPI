@@ -1,6 +1,6 @@
+from application.app.adventure_loader import AdventureLoader
 from fastapi import APIRouter, HTTPException
-from application.app.lobby.lobby_manager import LobbyManager
-from utils.adventure_loader import load_adventures_from_json, get_adventure_by_id
+from application.app.lobby_manager import LobbyManager
 import json
 import os
 
@@ -41,7 +41,7 @@ async def get_adventures_as_objects():
     Get all adventures as fully parsed Adventure objects (useful for game logic).
     """
     try:
-        adventures = load_adventures_from_json()
+        adventures = AdventureLoader().load_adventures_from_json()
         return {"adventures": [adventure.to_dict() for adventure in adventures]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load adventure objects: {str(e)}")
@@ -100,7 +100,7 @@ async def get_adventure_object_by_id(adventure_id: int):
     Get a specific adventure as a fully parsed Adventure object (useful for game logic).
     """
     try:
-        adventure = get_adventure_by_id(adventure_id)
+        adventure = AdventureLoader().get_adventure_by_id(adventure_id)
         if not adventure:
             raise HTTPException(status_code=404, detail="Adventure not found")
         return adventure.to_dict()
@@ -115,7 +115,7 @@ async def get_adventures_by_player_count(min_players: int, max_players: int):
     Get adventures that support a specific player count range.
     """
     try:
-        from utils.adventure_loader import get_adventures_by_player_count
+        from application.app.adventure_loader import get_adventures_by_player_count
         adventures = get_adventures_by_player_count(min_players, max_players)
         
         # Convert to dict and add image URLs

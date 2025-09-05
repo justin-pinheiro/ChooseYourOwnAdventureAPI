@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from utils.llm_client import OpenRouterClient
+from application.app.llm_client import OpenRouterClient
 from domain.chapter import Chapter
 from domain.adventure import Adventure
 
