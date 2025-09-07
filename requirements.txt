@@ -2,5 +2,6 @@ fastapi
 uvicorn[standard]
 pytest 
 pytest-asyncio
+pytest-cov
 httpx
 python-dotenv
