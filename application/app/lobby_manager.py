@@ -14,8 +14,7 @@ class LobbyManager:
     Manages all active WebSocket connections, organized by Lobby objects.
     """
     def __init__(self, game_manager : GameManager):
-        # The key is the lobby ID, and the value is a Lobby object.
-        self.lobbies: Dict[str, Lobby] = {}
+        self.lobbies: Dict[str, Lobby] = {} # The key is the lobby ID, and the value is a Lobby object.
         self.game_manager = game_manager
 
     def create_lobby(self, max_players: int, adventure_id: int) -> str:
@@ -24,24 +23,19 @@ class LobbyManager:
         if max_players < 1:
             raise HTTPException(status_code=400, detail="Invalid player limits: max_players must be at least 1")
         
-        lobby_id = str(uuid.uuid4())[:8]
-        self.lobbies[lobby_id] = Lobby(lobby_id, max_players, adventure_id)
-        
         try:
             adventure = AdventureLoader.get_adventure_by_id(adventure_id)
             if not adventure:
                 raise HTTPException(status_code=404, detail=f"Adventure with ID {adventure_id} not found")
-            
-            self.lobbies[lobby_id].game_state.adventure = adventure
-            print(f"Lobby '{lobby_id}' created with adventure: '{adventure.title}' (ID: {adventure_id})")
-            
         except Exception as e:
-            # Clean up the lobby if adventure loading fails
-            if lobby_id in self.lobbies:
-                del self.lobbies[lobby_id]
             raise HTTPException(status_code=500, detail=f"Failed to load adventure: {str(e)}")
+            
+        lobby_id = str(uuid.uuid4())[:8]
+        self.lobbies[lobby_id] = Lobby(lobby_id, max_players, adventure_id)
+        self.lobbies[lobby_id].game_state.adventure = adventure
         
-        print(f"Lobby '{lobby_id}' created with max:{max_players} players.")
+        print(f"Lobby '{lobby_id}' created with adventure: '{adventure.title}' (ID: {adventure_id}) and max:{max_players} players.")
+
         return lobby_id
     
     def get_lobby(self, lobby_id: str) -> Lobby:
@@ -52,25 +46,8 @@ class LobbyManager:
         """Get information about all existing lobbies."""
         lobbies_info = []
         
-        for lobby_id, lobby in self.lobbies.items():
-            lobby_info = {
-                "id": lobby.id,
-                "max_players": lobby.max_players,
-                "current_players": len(lobby.connections),
-                "adventure_id": lobby.adventure_id,
-                "adventure_title": lobby.game_state.adventure.title if lobby.game_state.adventure else None,
-                "game_started": lobby.game_state.started,
-                "current_round": lobby.game_state.round,
-                "players": [
-                    {
-                        "name": conn.user.name,
-                        "is_ready": conn.is_ready
-                    } for conn in lobby.connections
-                ],
-                "is_full": len(lobby.connections) >= lobby.max_players,
-                "can_join": len(lobby.connections) < lobby.max_players and not lobby.game_state.started
-            }
-            lobbies_info.append(lobby_info)
+        for lobby in self.lobbies.values():
+            lobbies_info.append(lobby.to_dict())
         
         return {
             "total_lobbies": len(self.lobbies),
@@ -81,8 +58,6 @@ class LobbyManager:
         """Start a given lobby"""
 
         lobby = self.lobbies[lobby_id]
-
-        # if(not self.adventure): raise Exception("No adventure selected")
 
         all_players_ready = all(connection.is_ready for connection in lobby.connections)
         if not all_players_ready: raise Exception("All players must be ready")
@@ -107,6 +82,7 @@ class LobbyManager:
 
     async def connect(self, socket: WebSocket, lobby_id: str):
         """Adds a new client connection to a specified lobby."""
+        
         print(f"lobbies ids: {self.lobbies.keys()}")
         if lobby_id not in self.lobbies.keys():
             raise HTTPException(status_code=404, detail="Lobby not found")
