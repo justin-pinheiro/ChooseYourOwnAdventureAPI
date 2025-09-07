@@ -4,8 +4,8 @@ from application.app.lobby_manager import LobbyManager
 from application.app.game_manager import GameManager
 
 router = APIRouter()
-lobby_manager = LobbyManager()
-game_manager = GameManager(lobby_manager)
+game_manager = GameManager()
+lobby_manager = LobbyManager(game_manager)
 
 @router.post("/create")
 async def create_lobby_endpoint(max_players: int, adventure_id : int):

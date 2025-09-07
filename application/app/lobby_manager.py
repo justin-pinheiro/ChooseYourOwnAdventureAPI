@@ -7,17 +7,16 @@ from fastapi import WebSocket, WebSocketDisconnect, HTTPException
 
 from domain.lobby import Lobby
 from domain.user import User
-
-
+from .game_manager import GameManager
 
 class LobbyManager:
     """
     Manages all active WebSocket connections, organized by Lobby objects.
     """
-    def __init__(self):
+    def __init__(self, game_manager : GameManager):
         # The key is the lobby ID, and the value is a Lobby object.
         self.lobbies: Dict[str, Lobby] = {}
-
+        self.game_manager = game_manager
 
     def create_lobby(self, max_players: int, adventure_id: int) -> str:
         """Generates a unique ID and creates a new lobby."""
@@ -92,6 +91,8 @@ class LobbyManager:
 
         for connection in list[Connection](lobby.connections):
 
+            lobby.game_state.chapters[connection.id] = []
+
             message = {
                 "type" : "start_adventure",
                 "info" : {
@@ -100,7 +101,6 @@ class LobbyManager:
             }
 
             try:
-                print("Sending:", message)
                 await connection.socket.send_json(message)
             except WebSocketDisconnect:
                 self.disconnect(connection.socket, lobby.id)
@@ -118,12 +118,11 @@ class LobbyManager:
 
         await socket.accept()
         
-        # Find an available id
+        # Find an available name
         player_id = 1
         while any(connection.user.name == f"Player {player_id}" for connection in lobby.connections):
             player_id += 1
 
-        # Add the connection to the list
         lobby.connections.append(Connection(socket, User(f"Player {player_id}")))
         
         print(f"Client {socket} connected to lobby '{lobby_id}'. Total clients: {len(lobby.connections)}")
@@ -142,6 +141,68 @@ class LobbyManager:
                 await self.broadcast_lobby(lobby_id)
                 return connection.is_ready
         return None
+    
+    async def submit_choice(self, lobby_id: str, sender: WebSocket, message):
+        """Handle player choice submission"""
+        
+        if lobby_id not in self.lobbies: return None
+        else : lobby : Lobby = self.lobbies[lobby_id]
+        
+        sender_name = "Unknown"
+        sender_connection = None
+        for connection in lobby.connections:
+            if connection.socket == sender:
+                sender_name = connection.user.name
+                sender_connection = connection
+                break
+            
+        if not sender_connection:
+            return
+        
+        sender_uuid = uuid.UUID(sender_connection.id)
+        
+        self.game_manager.submit_choice(lobby, sender_uuid, message)
+        
+        all_choices_made = True
+        for connection in lobby.connections:
+            connection_uuid = uuid.UUID(connection.id)
+            if (connection_uuid not in lobby.game_state.chapters or 
+                not lobby.game_state.chapters[connection_uuid] or 
+                lobby.game_state.chapters[connection_uuid][-1].choice == -1):
+                all_choices_made = False
+                break
+
+        if all_choices_made: await self.game_manager.start_new_round(lobby)
+
+        print(f"Lobby '{lobby.id}' : {sender_name} submitted : {message}")
+            
+        return None
+
+    async def start_new_round(self, lobby: Lobby):
+        """Start a new round, and send a message to inform all players"""
+
+        if not lobby.game_state.adventure:
+            print(f"[ERROR] No adventure set for lobby {lobby.id}")
+            return
+        
+        self.game_manager.start_new_round()
+
+        for connection in lobby.connections:
+
+            message = {
+                "type" : "new_round",
+                "info" : {
+                    "round_index" : lobby.game_state.round,
+                    "text" : lobby.game_state.chapters[connection.id][-1].text,
+                    "choices" : lobby.game_state.chapters[connection.id][-1].possiblities,
+                }
+            }
+            
+            try:
+                await connection.socket.send_json(message)
+            except Exception as e:
+                print(f"[ERROR] Error sending message to {connection.user.name}: {e}")
+
 
     def disconnect(self, socket: WebSocket, lobby_id: str):
         """Removes a client connection from a specified lobby."""
@@ -159,47 +220,6 @@ class LobbyManager:
                 del self.lobbies[lobby_id]
                 print(f"Lobby '{lobby_id}' is now empty and has been removed.")
 
-    async def submit_choice(self, lobby_id: str, sender : WebSocket, message):
-        
-        sender_name = "Unknown"
-        sender_connection = None
-        for connection in self.lobbies[lobby_id].connections:
-            if connection.socket == sender:
-                sender_name = connection.user.name
-                sender_connection = connection
-                break
-        
-        print(f"Lobby '{lobby_id}' : {sender_name} submitted : {message}")
-
-        lobby = self.lobbies.get(lobby_id)
-        if not lobby or not sender_connection:
-            return
-        
-        # Convert connection ID to UUID and update the choice
-        sender_uuid = uuid.UUID(sender_connection.id)
-        if sender_uuid in lobby.game_state.chapters and lobby.game_state.chapters[sender_uuid]:
-            latest_chapter = lobby.game_state.chapters[sender_uuid][-1]
-            latest_chapter.choice = message["choice_index"]
-
-        # Check if all players have made their choice
-        all_choices_made = True
-        for connection in lobby.connections:
-            connection_uuid = uuid.UUID(connection.id)
-            if (connection_uuid not in lobby.game_state.chapters or 
-                not lobby.game_state.chapters[connection_uuid] or 
-                lobby.game_state.chapters[connection_uuid][-1].choice == -1):
-                all_choices_made = False
-                break
-
-        if all_choices_made:
-            await self.start_new_round(lobby_id)
-        else:
-            remaining_players = sum(1 for connection in lobby.connections 
-                                  if (uuid.UUID(connection.id) not in lobby.game_state.chapters or 
-                                      not lobby.game_state.chapters[uuid.UUID(connection.id)] or
-                                      lobby.game_state.chapters[uuid.UUID(connection.id)][-1].choice == -1))
-            print(f"Waiting for {remaining_players} more players to make their choice")
-        
     async def broadcast(self, lobby: Lobby, message: str, sender: WebSocket = None):
         """Sends a message to all clients in a lobby, except the sender."""
         for connection in list[Connection](lobby.connections):

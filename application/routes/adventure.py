@@ -1,11 +1,9 @@
 from application.app.adventure_loader import AdventureLoader
 from fastapi import APIRouter, HTTPException
-from application.app.lobby_manager import LobbyManager
 import json
 import os
 
 router = APIRouter()
-manager = LobbyManager()
 
 @router.get("/")
 async def get_adventures():
