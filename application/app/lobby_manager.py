@@ -131,7 +131,7 @@ class LobbyManager:
 
     async def toggle_player_ready_state(self, socket: WebSocket, lobby_id: str):
         """Toggles the ready state for a player and broadcasts the updated lobby info."""
-        if lobby_id not in self.lobbies:
+        if lobby_id not in self.lobbies:        
             return None
         
         lobby = self.lobbies[lobby_id]
@@ -217,8 +217,9 @@ class LobbyManager:
             "type" : "lobby_info",
             "info" : lobby.to_dict()
         }
-        
+
         for connection in lobby.connections:
+            print("- " + connection.user.name)
             try:
                 print(f"Broadcast : {message}")
                 await connection.socket.send_json(message)

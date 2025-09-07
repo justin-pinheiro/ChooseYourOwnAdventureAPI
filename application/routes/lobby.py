@@ -67,12 +67,11 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
                     
                     if message.get("type") == "toggle_ready":
                         new_ready_state = await lobby_manager.toggle_player_ready_state(websocket, lobby_id)
-                        if new_ready_state is not None:
-                            await websocket.send_json({
-                                "type": "ready_toggled",
-                                "success": True,
-                                "is_ready": new_ready_state
-                            })
+                        await websocket.send_json({
+                            "type": "ready_toggled",
+                            "success": new_ready_state is not None,
+                            "is_ready": new_ready_state
+                        })
                             
                     elif message.get("type") == "start_adventure":
                         
