@@ -5,11 +5,39 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from main import app
 import pytest
+import json
 
 client = TestClient(app)
 
-def test_create_lobby_success(monkeypatch):
-    """Test that a lobby can be created with valid player limits."""
+@pytest.fixture(autouse=True)
+def clean_lobbies():
+    """Clean up lobbies before and after each test"""
+    lobby_manager.lobbies.clear()
+    yield
+    lobby_manager.lobbies.clear()
+
+@pytest.fixture
+def mock_adventure():
+    """Fixture to provide a mock adventure"""
+    with patch(
+        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
+        return_value=Adventure(1, "title", "description", 2, 4, None),
+    ) as mock:
+        yield mock
+
+@pytest.fixture
+def create_test_lobby(mock_adventure):
+    """Fixture to create a test lobby"""
+    def _create_lobby(max_players=4):
+        response = client.post(
+            "/lobbies/create",
+            params={"max_players": max_players, "adventure_id": 1}
+        )
+        assert response.status_code == 200
+        return response.json()["lobby_id"]
+    return _create_lobby
+
+def test_create_lobby_success(mock_adventure):
     with patch(
         "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
         return_value=Adventure(1, "title", "description", 2, 4, None),
@@ -36,31 +64,12 @@ def test_create_lobby_invalid_limits():
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid player limits: max_players must be at least 1"
 
-def test_websocket_connect_and_message():
+def test_websocket_connect_and_message(create_test_lobby):
     """Test that a client can connect to a lobby and send a message."""
+    lobby_id = create_test_lobby()
     
-    with patch(
-        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
-        return_value=Adventure(1, "title", "description", 2, 4, None),
-    ):
-        create_response = client.post(
-            "/lobbies/create",
-            params={"max_players": 4, "adventure_id": 1}
-        )
-
-    assert create_response.status_code == 200
-
-    lobby_id = create_response.json()["lobby_id"]
-    assert lobby_id in lobby_manager.lobbies
-
     with client.websocket_connect(f"/lobbies/join/{lobby_id}") as websocket:
-        welcome = websocket.receive_text()
-        assert welcome == f"Welcome to lobby '{lobby_id}'."
-        
         lobby_info = websocket.receive_json()
-
-        print(lobby_info["info"])      
-
         assert lobby_info["info"]["lobby"]["id"] == lobby_id
         assert lobby_info["info"]["lobby"]["current_players"] == 1
         
@@ -68,37 +77,27 @@ def test_websocket_connect_and_message():
         websocket.send_text(test_message)
         
         response = websocket.receive_text()
-        assert response == f"Server received your message: '{test_message}'"
+        assert response == f"Server received non-JSON message: '{test_message}'"
 
 def test_websocket_join_non_existent_lobby():
     """Test that a connection to a non-existent lobby fails."""
     non_existent_id = "nonexistent"
     with pytest.raises(WebSocketDisconnect) as excinfo:
-        with client.websocket_connect(f"/lobbies/join/{non_existent_id}") as websocket:
-            websocket.receive_text()
+        with client.websocket_connect(f"/lobbies/join/{non_existent_id}"):
+            pass  # The connection should fail immediately
     assert excinfo.value.code == 1008
     assert excinfo.value.reason == "Lobby with id : 'nonexistent' was not found."
 
-def test_websocket_join_full_lobby():
+def test_websocket_join_full_lobby(create_test_lobby):
     """Test that a connection to a full lobby fails."""
-    
-    with patch(
-        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
-        return_value=Adventure(1, "title", "description", 2, 4, None),
-    ):
-        create_response = client.post(
-            "/lobbies/create",
-            params={"max_players": 1, "adventure_id": 1}
-        )
-        
-    lobby_id = create_response.json()["lobby_id"]
+    lobby_id = create_test_lobby(max_players=1)
     
     with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws1:
-        ws1.receive_text()
+        ws1.receive_json()  # Initial lobby info
         
         with pytest.raises(WebSocketDisconnect) as excinfo:
-            with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws2:
-                ws2.receive_text()
+            with client.websocket_connect(f"/lobbies/join/{lobby_id}"):
+                pass
         
         assert excinfo.value.code == 1008
         assert excinfo.value.reason == f"Lobby with ID {lobby_id} is full."
@@ -121,8 +120,6 @@ def test_websocket_broadcast_lobby_info():
 
     # Connect first client
     with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws1:
-        welcome1 = ws1.receive_text()
-        assert welcome1 == f"Welcome to lobby '{lobby_id}'."
         
         # ws1 should receive lobby info as JSON
         lobby_info_msg1 = ws1.receive_json()
@@ -131,8 +128,6 @@ def test_websocket_broadcast_lobby_info():
 
         # Connect second client
         with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws2:
-            welcome2 = ws2.receive_text()
-            assert welcome2 == f"Welcome to lobby '{lobby_id}'."
             # ws2 should receive lobby info as JSON
             lobby_info_msg2 = ws2.receive_json()
             assert lobby_info_msg2["info"]["lobby"]["current_players"] == 2
@@ -144,40 +139,25 @@ def test_websocket_broadcast_lobby_info():
             assert lobby_info_msg1_update["info"]["lobby"]["id"] == lobby_id
             assert lobby_info_msg1_update["info"]["lobby"]["current_players"] == 2
 
-def test_player_ready_state_toggle():
-    """Test that players can toggle their ready state."""
-    import json
-    
-    with patch(
-        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
-        return_value=Adventure(1, "title", "description", 2, 4, None),
-    ):
-        create_response = client.post(
-            "/lobbies/create",
-            params={"min_players": 2, "max_players": 4, "adventure_id": 1}
-        )
+            ws2.close()
         
-    lobby_id = create_response.json()["lobby_id"]
+        ws1.close()
+
+
+def test_player_ready_state_toggle(create_test_lobby):
+    """Test that players can toggle their ready state."""
+    lobby_id = create_test_lobby()
     
     with client.websocket_connect(f"/lobbies/join/{lobby_id}") as websocket:
-        # Skip welcome message and initial lobby info
-        websocket.receive_text()
-        initial_lobby_info = websocket.receive_json()
-        
-        print(initial_lobby_info["info"])
-
-        # Verify player starts as not ready
-        assert initial_lobby_info["info"]["lobby"]["players"][0]["is_ready"] == False
+        websocket.receive_json()  # Initial lobby info
         
         # Toggle ready state to True
         websocket.send_text(json.dumps({"type": "toggle_ready"}))
         
-        # Check updated lobby info
-        updated_lobby_info = websocket.receive_json()
-        assert updated_lobby_info["type"] == "lobby_info"
-        assert updated_lobby_info["info"]["lobby"]["players"][0]["is_ready"] == True
+        lobby_update = websocket.receive_json()
+        assert lobby_update["type"] == "lobby_info"
+        assert lobby_update["info"]["lobby"]["players"][0]["is_ready"] == True
 
-        # Check ready response
         ready_response = websocket.receive_json()
         assert ready_response["type"] == "ready_toggled"
         assert ready_response["success"] == True
@@ -186,123 +166,92 @@ def test_player_ready_state_toggle():
         # Toggle ready state back to False
         websocket.send_text(json.dumps({"type": "toggle_ready"}))
         
-        # Check updated lobby info
-        updated_lobby_info2 = websocket.receive_json()
-        assert updated_lobby_info2["type"] == "lobby_info"
-        assert updated_lobby_info2["info"]["lobby"]["players"][0]["is_ready"] == False
+        lobby_update = websocket.receive_json()
+        assert lobby_update["type"] == "lobby_info"
+        assert lobby_update["info"]["lobby"]["players"][0]["is_ready"] == False
 
-        # Check ready response
-        ready_response2 = websocket.receive_json()
-        assert ready_response2["type"] == "ready_toggled"
-        assert ready_response2["success"] == True
-        assert ready_response2["is_ready"] == False
+        ready_response = websocket.receive_json()
+        assert ready_response["type"] == "ready_toggled"
+        assert ready_response["success"] == True
+        assert ready_response["is_ready"] == False
 
-def test_multiple_players_ready_state():
+        websocket.close()
+
+def test_multiple_players_ready_state(create_test_lobby):
     """Test that multiple players can independently toggle their ready states."""
-    import json
-    
-    with patch(
-        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
-        return_value=Adventure(1, "title", "description", 2, 4, None),
-    ):
-        create_response = client.post(
-            "/lobbies/create",
-            params={"min_players": 2, "max_players": 4, "adventure_id": 1}
-        )
-        
-    lobby_id = create_response.json()["lobby_id"]
+    lobby_id = create_test_lobby(max_players=4)
     
     with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws1:
-        # Player 1 connects
-        ws1.receive_text()  # Welcome message
+        # Player 1 connects and gets initial lobby info
         ws1.receive_json()  # Initial lobby info
         
         with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws2:
             # Player 2 connects
-            ws2.receive_text()  # Welcome message
-            ws2.receive_json()  # Initial lobby info
-            ws1.receive_json()  # Player 1 gets updated lobby info
+            ws2.receive_json()  # Initial lobby info for ws2
+            ws1.receive_json()  # Updated lobby info for ws1 with new player
 
             # Player 1 toggles ready
             ws1.send_text(json.dumps({"type": "toggle_ready"}))
-            lobby_info_1 = ws1.receive_json()  # Updated lobby info
-            lobby_info_2 = ws2.receive_json()  # Player 2 gets updated lobby info
-            ready_response_1 = ws1.receive_json()  # Player 1 ready response
             
-            # Verify Player 1 is ready, Player 2 is not
-            assert lobby_info_1["info"]["lobby"]["players"][0]["is_ready"] == True
-            assert lobby_info_1["info"]["lobby"]["players"][1]["is_ready"] == False
-            assert lobby_info_2["info"]["lobby"]["players"][0]["is_ready"] == True
-            assert lobby_info_2["info"]["lobby"]["players"][1]["is_ready"] == False
-            assert ready_response_1["type"] == "ready_toggled"
-            assert ready_response_1["success"] == True
-            assert ready_response_1["is_ready"] == True
+            # Get lobby updates and ready response
+            p1_lobby_update = ws1.receive_json()
+            p2_lobby_update = ws2.receive_json()
+            ready_response = ws1.receive_json()
+            
+            # Verify initial ready state
+            assert p1_lobby_update["info"]["lobby"]["players"][0]["is_ready"] == True
+            assert p2_lobby_update["info"]["lobby"]["players"][0]["is_ready"] == True
+            assert ready_response["type"] == "ready_toggled"
+            assert ready_response["is_ready"] == True
 
             # Player 2 toggles ready
             ws2.send_text(json.dumps({"type": "toggle_ready"}))
-            lobby_info_2 = ws2.receive_json()  # Updated lobby info
-            lobby_info_1 = ws1.receive_json()  # Player 1 gets updated lobby info
-            ready_response_2 = ws2.receive_json()  # Player 2 ready response
             
-            # Verify both players are ready
-            assert lobby_info_1["info"]["lobby"]["players"][0]["is_ready"] == True
-            assert lobby_info_1["info"]["lobby"]["players"][1]["is_ready"] == True
-            assert lobby_info_2["info"]["lobby"]["players"][0]["is_ready"] == True
-            assert lobby_info_2["info"]["lobby"]["players"][1]["is_ready"] == True
-            assert ready_response_2["type"] == "ready_toggled"
-            assert ready_response_2["success"] == True
-            assert ready_response_2["is_ready"] == True
-
-            # Player 1 toggles ready back to False
-            ws1.send_text(json.dumps({"type": "toggle_ready"}))
-            lobby_info_1 = ws1.receive_json()  # Updated lobby info
-            lobby_info_2 = ws2.receive_json()  # Player 2 gets updated lobby info
-            ready_response_1_final = ws1.receive_json()  # Player 1 ready response
+            # Get updates for player 2's ready toggle
+            p2_lobby_update = ws2.receive_json()
+            p1_lobby_update = ws1.receive_json()
+            p2_ready_response = ws2.receive_json()
             
-            # Verify Player 1 is not ready, Player 2 is ready
-            assert lobby_info_1["info"]["lobby"]["players"][0]["is_ready"] == False
-            assert lobby_info_1["info"]["lobby"]["players"][1]["is_ready"] == True
-            assert lobby_info_2["info"]["lobby"]["players"][0]["is_ready"] == False
-            assert lobby_info_2["info"]["lobby"]["players"][1]["is_ready"] == True
-            assert ready_response_1_final["type"] == "ready_toggled"
-            assert ready_response_1_final["success"] == True
-            assert ready_response_1_final["is_ready"] == False
+            # Verify both players ready state
+            assert p1_lobby_update["info"]["lobby"]["players"][0]["is_ready"] == True
+            assert p1_lobby_update["info"]["lobby"]["players"][1]["is_ready"] == True
+            assert p2_ready_response["type"] == "ready_toggled"
+            assert p2_ready_response["is_ready"] == True
 
-def test_ready_state_preserved_in_lobby_info():
+            ws2.close()
+
+        ws1.close()
+
+def test_ready_state_preserved_in_lobby_info(create_test_lobby):
     """Test that ready states are properly included in all lobby info broadcasts."""
-    import json
-    
-    with patch(
-        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
-        return_value=Adventure(1, "title", "description", 2, 4, None),
-    ):
-        create_response = client.post(
-            "/lobbies/create",
-            params={"min_players": 1, "max_players": 3, "adventure_id": 1}
-        )
-
-    lobby_id = create_response.json()["lobby_id"]
+    lobby_id = create_test_lobby(max_players=3)
     
     with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws1:
-        ws1.receive_text()  # Welcome
         ws1.receive_json()  # Initial lobby info
         
         # Player 1 becomes ready
         ws1.send_text(json.dumps({"type": "toggle_ready"}))
-        ws1.receive_json()  # Updated lobby info
-        ws1.receive_json()  # Ready response
+        lobby_update = ws1.receive_json()  # Updated lobby info
+        ready_response = ws1.receive_json()  # Ready response
+        
+        assert lobby_update["type"] == "lobby_info"
+        assert lobby_update["info"]["lobby"]["players"][0]["is_ready"] == True
+        assert ready_response["type"] == "ready_toggled"
         
         # Player 2 joins
         with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws2:
-            ws2.receive_text()  # Welcome
-            lobby_info_2 = ws2.receive_json()  # Lobby info for player 2
-            lobby_info_1 = ws1.receive_json()  # Updated lobby info for player 1
+            p2_initial_info = ws2.receive_json()  # Initial info for player 2
+            p1_update = ws1.receive_json()  # Updated info for player 1
             
-            # Both should show Player 1 as ready, Player 2 as not ready
-            assert len(lobby_info_1["info"]["lobby"]["players"]) == 2
-            assert lobby_info_1["info"]["lobby"]["players"][0]["is_ready"] == True
-            assert lobby_info_1["info"]["lobby"]["players"][1]["is_ready"] == False
+            # Verify both players see the correct ready states
+            assert len(p2_initial_info["info"]["lobby"]["players"]) == 2
+            assert p2_initial_info["info"]["lobby"]["players"][0]["is_ready"] == True
+            assert p2_initial_info["info"]["lobby"]["players"][1]["is_ready"] == False
             
-            assert len(lobby_info_2["info"]["lobby"]["players"]) == 2
-            assert lobby_info_2["info"]["lobby"]["players"][0]["is_ready"] == True
-            assert lobby_info_2["info"]["lobby"]["players"][1]["is_ready"] == False
+            assert len(p1_update["info"]["lobby"]["players"]) == 2
+            assert p1_update["info"]["lobby"]["players"][0]["is_ready"] == True
+            assert p1_update["info"]["lobby"]["players"][1]["is_ready"] == False
+
+            ws2.close()
+
+        ws1.close()

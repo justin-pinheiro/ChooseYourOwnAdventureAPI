@@ -48,75 +48,25 @@ async def get_lobby_info(lobby_id: str):
 @router.websocket("/join/{lobby_id}")
 async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
     """
-    The main WebSocket endpoint. Clients connect to this route using a lobby ID.
+    The main WebSocket endpoint for clients to connect to a specific lobby.
     """
     try:
-        print("Connecting new player to lobby ", lobby_id)
-
-        try:
-            lobby = await lobby_manager.connect(websocket, lobby_id)
-        except LobbyIsFullException as e:
-            raise HTTPException(status_code=409, detail=str(e))
-        except LobbyNotFound as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        
-        await websocket.send_text(f"Welcome to lobby '{lobby.id}'.")
-        
+        await lobby_manager.connect(websocket, lobby_id)
         await lobby_manager.broadcast_lobby(lobby_id)
-        
+
         while True:
             try:
                 data = await websocket.receive_text()
-                print(f"Received message from client in '{lobby.id}': {data}")
-
-                try:
-                    import json
-                    message = json.loads(data)
-                    
-                    if message.get("type") == "toggle_ready":
-                        new_ready_state = await lobby_manager.toggle_player_ready_state(websocket, lobby_id)
-                        await websocket.send_json({
-                            "type": "ready_toggled",
-                            "success": new_ready_state is not None,
-                            "is_ready": new_ready_state
-                        })
-                            
-                    elif message.get("type") == "start_adventure":
-                        
-                        try: 
-                            await game_manager.start_lobby(lobby_id)
-                            await game_manager.start_new_round(lobby_id)
-                        except Exception as e: 
-                            print(e)
-
-                    elif message.get("type") == "submit_choice":
-                       
-                        try: 
-                            await game_manager.submit_choice(lobby_id, websocket, message)
-                        except Exception as e: 
-                            print(e)
-
-                    else:
-                        response_message = f"Server received your message: '{data}'"
-                        await websocket.send_text(response_message)
-                        print(f"Sent response to client in '{lobby.id}': '{response_message}'")
-                        
-                except json.JSONDecodeError:
-                    
-                    response_message = f"Server received your message: '{data}'"
-                    await websocket.send_text(response_message)
-                    print(f"Sent response to client in '{lobby.lobby_id}': {response_message}")
-                
+                await lobby_manager.handle_client_message(websocket, lobby_id, data)
             except WebSocketDisconnect:
-                raise
-            
-            except Exception as e:
-                print(f"An error occurred in lobby '{lobby.id}': {e}")
-                traceback.print_exc()
                 break
-    except HTTPException as e:
-        await websocket.close(code=1008, reason=e.detail)
-    except WebSocketDisconnect:
-        print(f"Client disconnected from lobby '{lobby_id}'.")
+
+    except (LobbyIsFullException, LobbyNotFound) as e:
+        await websocket.close(code=1008, reason=str(e))
+    except Exception as e:
+        print(f"An unexpected error occurred in lobby '{lobby_id}': {e}")
+        traceback.print_exc()
+        await websocket.close(code=1011)
     finally:
+        print(f"Cleaning up connection for lobby '{lobby_id}'")
         lobby_manager.disconnect(websocket, lobby_id)

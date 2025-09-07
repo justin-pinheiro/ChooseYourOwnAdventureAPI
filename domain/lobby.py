@@ -14,6 +14,9 @@ class Lobby:
     host: WebSocket = None
     game_state: GameState = field(default_factory=GameState)
 
+    def is_full(self):
+        return len(self.connections) >= self.max_players
+
     def to_dict(self):
         return {
             "lobby": {

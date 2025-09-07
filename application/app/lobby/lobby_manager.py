@@ -1,7 +1,9 @@
+import json
 from typing import Dict
 import uuid
+from application.app.adventure.adventure_exceptions import AdventureNotFoundException
 from application.app.adventure.adventure_loader import AdventureLoader
-from application.app.lobby.lobby_exceptions import LobbyIsFullException, LobbyNotFound
+from application.app.lobby.lobby_exceptions import ConnectionNotFoundException, LobbyIsFullException, LobbyNotFound
 from domain.connection import Connection
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -36,7 +38,10 @@ class LobbyManager:
         return lobby_id
     
     def get_lobby(self, lobby_id: str) -> Lobby:
-        """Get a lobby by its ID."""
+        """
+        Get a lobby by its ID.
+        Raise a LobbyNotFound exception if the lobby id does not exist.
+        """
 
         lobby = self.lobbies.get(lobby_id)
 
@@ -56,7 +61,47 @@ class LobbyManager:
             "total_lobbies": len(self.lobbies),
             "lobbies": lobbies_info
         }
-    
+        
+    async def handle_client_message(self, websocket: WebSocket, lobby_id: str, data: str):
+        """
+        Handles incoming messages from a client and dispatches them to the correct handler.
+        """
+        try:
+            message = json.loads(data)
+            message_type = message.get("type")
+
+            if message_type == "toggle_ready":
+                new_ready_state = await self.switch_client_ready_state(websocket, lobby_id)
+                await websocket.send_json({
+                    "type": "ready_toggled",
+                    "success": new_ready_state is not None,
+                    "is_ready": new_ready_state
+                })
+
+            elif message_type == "start_adventure":
+                # The game manager is now responsible for handling its own exceptions.
+                await self.start_lobby(lobby_id)
+                await self.start_new_round(lobby_id)
+
+            elif message_type == "submit_choice":
+                # The game manager is now responsible for handling its own exceptions.
+                await self.submit_choice(lobby_id, websocket, message)
+
+            else:
+                # Handle unknown or default message types gracefully.
+                response_message = f"Server received your message: '{data}'"
+                await websocket.send_text(response_message)
+                print(f"Sent response to client in '{lobby_id}': '{response_message}'")
+        
+        except json.JSONDecodeError:
+            response_message = f"Server received non-JSON message: '{data}'"
+            await websocket.send_text(response_message)
+            print(f"Sent response to client in '{lobby_id}': {response_message}")
+        except Exception as e:
+            # This catch-all is for unexpected errors in message processing.
+            print(f"An error occurred while processing message in lobby '{lobby_id}': {e}")
+
+
     async def start_lobby(self, lobby_id: int):
         """Start a given lobby"""
 
@@ -86,40 +131,46 @@ class LobbyManager:
     async def connect(self, socket: WebSocket, lobby_id: str):
         """Adds a new client connection to a specified lobby."""
         
-        print(f"lobbies ids: {self.lobbies.keys()}")
-        if lobby_id not in self.lobbies.keys():
-            raise LobbyNotFound(lobby_id)
-        
-        lobby = self.lobbies[lobby_id]
-        print(f"connections for lobby {lobby_id}: {lobby.connections}")
-        if len(lobby.connections) >= lobby.max_players:
+        lobby = self.get_lobby(lobby_id)
+
+        if lobby.is_full():
             raise LobbyIsFullException(lobby_id)
 
         await socket.accept()
         
-        # Find an available name
-        player_id = 1
-        while any(connection.user.name == f"Player {player_id}" for connection in lobby.connections):
-            player_id += 1
-
-        lobby.connections.append(Connection(socket, User(f"Player {player_id}")))
+        lobby.connections.append(
+            Connection(socket=socket, user=User(f"Player"))
+        )
         
-        print(f"Client {socket} connected to lobby '{lobby_id}'. Total clients: {len(lobby.connections)}")
-        return lobby
+        print(f"Client {socket} successfully connected to lobby '{lobby_id}'. Total connections: {len(lobby.connections)}")
 
-    async def toggle_player_ready_state(self, socket: WebSocket, lobby_id: str):
-        """Toggles the ready state for a player and broadcasts the updated lobby info."""
-        if lobby_id not in self.lobbies:        
-            return None
+    def _get_connection_by_socket(self, lobby_id: str, socket: WebSocket):
+        """
+        Helper method to find a specific connection in a lobby by its WebSocket.
         
-        lobby = self.lobbies[lobby_id]
+        :raises ConnectionNotFoundException: If no matching connection is found.
+        """
+        lobby = self.lobbies.get(lobby_id)
+        if not lobby:
+            raise ValueError("Lobby does not exist.") # Or a more specific exception
+        
         for connection in lobby.connections:
             if connection.socket == socket:
-                connection.is_ready = not connection.is_ready
-                print(f"Player '{connection.user.name}' in lobby '{lobby_id}' toggled ready state to: {connection.is_ready}")
-                await self.broadcast_lobby(lobby_id)
-                return connection.is_ready
-        return None
+                return connection
+        
+        raise ConnectionNotFoundException(f"Connection not found for socket in lobby '{lobby_id}'.")
+
+    async def switch_client_ready_state(self, socket: WebSocket, lobby_id: str):
+        """Switches the ready state of a client and broadcasts the updated lobby info."""
+        try:
+            connection = self._get_connection_by_socket(lobby_id, socket)
+            connection.is_ready = not connection.is_ready
+            print(f"Player '{connection.user.name}' in lobby '{lobby_id}' toggled ready state to: {connection.is_ready}")
+            await self.broadcast_lobby(lobby_id)
+            return connection.is_ready
+        except (ConnectionNotFoundException, ValueError) as e:
+            print(f"Error switching ready state: {e}")
+            return None
     
     async def submit_choice(self, lobby_id: str, sender: WebSocket, message):
         """Handle player choice submission"""
@@ -182,7 +233,6 @@ class LobbyManager:
             except Exception as e:
                 print(f"[ERROR] Error sending message to {connection.user.name}: {e}")
 
-
     def disconnect(self, socket: WebSocket, lobby_id: str):
         """Removes a client connection from a specified lobby."""
         if lobby_id in self.lobbies.keys():
@@ -194,18 +244,24 @@ class LobbyManager:
                     print(f"Client {socket} removed from lobby '{lobby_id}'. Total clients: {len(lobby.connections)}")
                     break
                 
-            # Clean up the lobby if it becomes empty
             if not lobby.connections:
                 del self.lobbies[lobby_id]
                 print(f"Lobby '{lobby_id}' is now empty and has been removed.")
 
     async def broadcast(self, lobby: Lobby, message: str, sender: WebSocket = None):
         """Sends a message to all clients in a lobby, except the sender."""
-        for connection in list[Connection](lobby.connections):
+        # Create a copy of connections to avoid modification during iteration
+        connections = lobby.connections.copy()
+        for connection in connections:
+            if sender == connection.socket:
+                continue
             try:
-                if(sender != connection.socket) : await connection.socket.send_text(message)
+                await connection.socket.send_text(message)
             except WebSocketDisconnect:
+                # Handle disconnect outside the broadcast loop
                 self.disconnect(connection.socket, lobby.id)
+            except Exception as e:
+                print(f"Error broadcasting to {connection.user.name}: {e}")
 
     async def broadcast_lobby(self, lobby_id: str):
         lobby = self.lobbies.get(lobby_id)
@@ -217,10 +273,13 @@ class LobbyManager:
             "info" : lobby.to_dict()
         }
 
-        for connection in lobby.connections:
-            print("- " + connection.user.name)
+        # Create a copy of connections to avoid modification during iteration
+        connections = lobby.connections.copy()
+        for connection in connections:
             try:
-                print(f"Broadcast : {message}")
                 await connection.socket.send_json(message)
             except WebSocketDisconnect:
+                # Handle disconnect outside the broadcast loop
                 self.disconnect(connection.socket, lobby_id)
+            except Exception as e:
+                print(f"Error broadcasting to {connection.user.name}: {e}")
