@@ -1,13 +1,13 @@
-from http.client import HTTPException
 from typing import Dict
 import uuid
-from application.app.adventure_loader import AdventureLoader
+from application.app.adventure.adventure_loader import AdventureLoader
+from application.app.lobby.lobby_exceptions import LobbyIsFullException, LobbyNotFound
 from domain.connection import Connection
-from fastapi import WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import WebSocket, WebSocketDisconnect
 
 from domain.lobby import Lobby
 from domain.user import User
-from .game_manager import GameManager
+from ..game_manager import GameManager
 
 class LobbyManager:
     """
@@ -21,15 +21,12 @@ class LobbyManager:
         """Generates a unique ID and creates a new lobby."""
         
         if max_players < 1:
-            raise HTTPException(status_code=400, detail="Invalid player limits: max_players must be at least 1")
+            raise ValueError("Invalid player limits: max_players must be at least 1")
         
-        try:
-            adventure = AdventureLoader.get_adventure_by_id(adventure_id)
-            if not adventure:
-                raise HTTPException(status_code=404, detail=f"Adventure with ID {adventure_id} not found")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to load adventure: {str(e)}")
-            
+        adventure = AdventureLoader.get_adventure_by_id(adventure_id)
+        if not adventure:
+            raise AdventureNotFoundException(adventure_id)
+        
         lobby_id = str(uuid.uuid4())[:8]
         self.lobbies[lobby_id] = Lobby(lobby_id, max_players, adventure_id)
         self.lobbies[lobby_id].game_state.adventure = adventure
@@ -40,7 +37,13 @@ class LobbyManager:
     
     def get_lobby(self, lobby_id: str) -> Lobby:
         """Get a lobby by its ID."""
-        return self.lobbies.get(lobby_id)
+
+        lobby = self.lobbies.get(lobby_id)
+
+        if not lobby:
+            raise LobbyNotFound(lobby_id)
+
+        return lobby
     
     def get_all_lobbies(self) -> Dict:
         """Get information about all existing lobbies."""
@@ -57,8 +60,8 @@ class LobbyManager:
     async def start_lobby(self, lobby_id: int):
         """Start a given lobby"""
 
-        lobby = self.lobbies[lobby_id]
-
+        lobby = self.get_lobby(lobby_id)
+        
         all_players_ready = all(connection.is_ready for connection in lobby.connections)
         if not all_players_ready: raise Exception("All players must be ready")
 
@@ -85,12 +88,12 @@ class LobbyManager:
         
         print(f"lobbies ids: {self.lobbies.keys()}")
         if lobby_id not in self.lobbies.keys():
-            raise HTTPException(status_code=404, detail="Lobby not found")
+            raise LobbyNotFound(lobby_id)
         
         lobby = self.lobbies[lobby_id]
         print(f"connections for lobby {lobby_id}: {lobby.connections}")
         if len(lobby.connections) >= lobby.max_players:
-            raise HTTPException(status_code=403, detail="Lobby is full")
+            raise LobbyIsFullException(lobby_id)
 
         await socket.accept()
         

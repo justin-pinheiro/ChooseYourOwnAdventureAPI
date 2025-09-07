@@ -1,6 +1,8 @@
+from application.app.adventure.adventure_exceptions import AdventureNotFoundException
+from application.app.lobby.lobby_exceptions import LobbyIsFullException, LobbyNotFound
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 import traceback
-from application.app.lobby_manager import LobbyManager
+from application.app.lobby.lobby_manager import LobbyManager
 from application.app.game_manager import GameManager
 
 router = APIRouter()
@@ -11,9 +13,14 @@ lobby_manager = LobbyManager(game_manager)
 async def create_lobby_endpoint(max_players: int, adventure_id : int):
     """
     An HTTP endpoint to create a new lobby and return its ID.
-    The client can specify max_players in the request body.
     """
-    lobby_id = lobby_manager.create_lobby(max_players, adventure_id)
+    try: 
+        lobby_id = lobby_manager.create_lobby(max_players, adventure_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except AdventureNotFoundException as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
     return {"lobby_id": lobby_id}
 
 @router.get("/")
@@ -34,14 +41,9 @@ async def get_lobby_info(lobby_id: str):
     """
     try:
         lobby = lobby_manager.get_lobby(lobby_id)
-        if not lobby:
-            raise HTTPException(status_code=404, detail="Lobby not found")
-        
         return lobby.to_dict()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve lobby info: {str(e)}")
+    except LobbyNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.websocket("/join/{lobby_id}")
 async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
@@ -50,7 +52,13 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
     """
     try:
         print("Connecting new player to lobby ", lobby_id)
-        lobby = await lobby_manager.connect(websocket, lobby_id)
+
+        try:
+            lobby = await lobby_manager.connect(websocket, lobby_id)
+        except LobbyIsFullException as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except LobbyNotFound as e:
+            raise HTTPException(status_code=404, detail=str(e))
         
         await websocket.send_text(f"Welcome to lobby '{lobby.id}'.")
         

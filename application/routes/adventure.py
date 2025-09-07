@@ -1,4 +1,4 @@
-from application.app.adventure_loader import AdventureLoader
+from application.app.adventure.adventure_loader import AdventureLoader
 from fastapi import APIRouter, HTTPException
 import json
 import os

@@ -11,7 +11,7 @@ client = TestClient(app)
 def test_create_lobby_success(monkeypatch):
     """Test that a lobby can be created with valid player limits."""
     with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
+        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
         return_value=Adventure(1, "title", "description", 2, 4, None),
     ):
         response = client.post(
@@ -26,7 +26,7 @@ def test_create_lobby_success(monkeypatch):
 def test_create_lobby_invalid_limits():
     """Test that a lobby cannot be created with invalid limits."""
     with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
+        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
         return_value=Adventure(1, "title", "description", 2, 4, None),
     ):
         response = client.post(
@@ -40,7 +40,7 @@ def test_websocket_connect_and_message():
     """Test that a client can connect to a lobby and send a message."""
     
     with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
+        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
         return_value=Adventure(1, "title", "description", 2, 4, None),
     ):
         create_response = client.post(
@@ -77,13 +77,13 @@ def test_websocket_join_non_existent_lobby():
         with client.websocket_connect(f"/lobbies/join/{non_existent_id}") as websocket:
             websocket.receive_text()
     assert excinfo.value.code == 1008
-    assert excinfo.value.reason == "Lobby not found"
+    assert excinfo.value.reason == "Lobby with id : 'nonexistent' was not found."
 
 def test_websocket_join_full_lobby():
     """Test that a connection to a full lobby fails."""
     
     with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
+        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
         return_value=Adventure(1, "title", "description", 2, 4, None),
     ):
         create_response = client.post(
@@ -101,13 +101,13 @@ def test_websocket_join_full_lobby():
                 ws2.receive_text()
         
         assert excinfo.value.code == 1008
-        assert excinfo.value.reason == "Lobby is full"
+        assert excinfo.value.reason == f"Lobby with ID {lobby_id} is full."
 
 def test_websocket_broadcast_lobby_info():
     """Test that all clients receive updated lobby info when a new client joins."""
     
     with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
+        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
         return_value=Adventure(1, "title", "description", 2, 4, None),
     ):
         create_response = client.post(
@@ -149,7 +149,7 @@ def test_player_ready_state_toggle():
     import json
     
     with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
+        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
         return_value=Adventure(1, "title", "description", 2, 4, None),
     ):
         create_response = client.post(
@@ -202,7 +202,7 @@ def test_multiple_players_ready_state():
     import json
     
     with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
+        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
         return_value=Adventure(1, "title", "description", 2, 4, None),
     ):
         create_response = client.post(
@@ -273,7 +273,7 @@ def test_ready_state_preserved_in_lobby_info():
     import json
     
     with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
+        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
         return_value=Adventure(1, "title", "description", 2, 4, None),
     ):
         create_response = client.post(
