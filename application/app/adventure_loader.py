@@ -7,7 +7,7 @@ from domain.map import Map, Area
 class AdventureLoader():
 
     @staticmethod
-    def load_adventures_from_json(file_path: str = "adventures.json") -> List[Adventure]:
+    def load_adventures_from_json(file_path: str) -> List[Adventure]:
         """
         Load adventures from a JSON file and convert them to Adventure objects.
         
@@ -23,13 +23,11 @@ class AdventureLoader():
             KeyError: If required fields are missing from the JSON
         """
         
-        # Get the absolute path to the JSON file
-        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Go up to backend folder
-        full_path = os.path.join(current_dir, file_path)
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        full_path = os.path.join(base_dir, file_path)
         
         print(f"[DEBUG] Loading adventures from: {full_path}")
         
-        # Check if file exists
         if not os.path.exists(full_path):
             raise FileNotFoundError(f"Adventures file not found: {full_path}")
         
@@ -125,7 +123,7 @@ class AdventureLoader():
             Adventure object if found, None otherwise
         """
         if adventures is None:
-            adventures = load_adventures_from_json()
+            adventures = AdventureLoader.load_adventures_from_json("static/adventures.json")
         
         for adventure in adventures:
             if adventure.id == adventure_id:
@@ -147,7 +145,7 @@ class AdventureLoader():
             List of compatible Adventure objects
         """
         if adventures is None:
-            adventures = load_adventures_from_json()
+            adventures = AdventureLoader.load_adventures_from_json("static/adventures.json")
         
         compatible_adventures = []
         
