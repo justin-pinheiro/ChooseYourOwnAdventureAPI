@@ -107,8 +107,7 @@ class LobbiesManager:
             try:
                 await connection.socket.send_json(message)
             except WebSocketDisconnect:
-                self.disconnect(connection.socket, lobby_id)
-                self.broadcast_lobby_info(lobby_id)
+                await self.disconnect(connection.socket, lobby_id)
             except Exception as e:
                 print(f"Error broadcasting to {connection.socket}: {e}")
 

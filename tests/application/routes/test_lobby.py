@@ -61,7 +61,9 @@ def create_mock_lobby():
     
     yield mock_lobby_id
 
-# --- tests
+# --- Integration tests
+
+# --- Creating a lobby
 
 def test_create_lobby_success(mock_adventure):
     
@@ -83,6 +85,8 @@ def test_create_lobby_invalid_limits(mock_adventure):
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid player limits: max_players must be at least 1"
+
+# --- Joining a lobby
 
 def test_websocket_joins_non_existent_lobby(mock_adventure, websocket_connection):
     """Test that a connection to a non-existent lobby fails."""
@@ -124,6 +128,8 @@ def test_websocket_join_full_lobby(create_mock_lobby, websocket_connection):
     assert excinfo.value.code == 1008
     assert excinfo.value.reason == f"Lobby with ID {lobby_id} is full."
 
+# --- Broadcasting lobby info
+
 def test_websocket_broadcast_lobby_info(create_mock_lobby, websocket_connection):
     """Test that all clients receive updated lobby info when a new client joins."""
     lobby_id = create_mock_lobby
@@ -144,6 +150,8 @@ def test_websocket_broadcast_lobby_info(create_mock_lobby, websocket_connection)
             assert lobby_update["type"] == "lobby_info"
             assert lobby_update["lobby"]["current_players"] == 2
             assert lobby_update["lobby"]["id"] == lobby_id
+
+# --- Getting all lobbies info
 
 def test_get_all_lobbies_success(create_mock_lobby):
     """Test that the endpoint returns a list of all lobbies."""
@@ -166,6 +174,8 @@ def test_get_all_lobbies_empty():
     assert data["total_lobbies"] == 0
     assert data["lobbies"] == []
 
+# --- Getting one lobby info
+
 def test_get_lobby_info_success(create_mock_lobby):
     """Test that the endpoint returns detailed info for a specific lobby."""
     lobby_id = create_mock_lobby
@@ -185,6 +195,8 @@ def test_get_lobby_info_not_found():
     response = client.get("/lobbies/nonexistent")
     assert response.status_code == 404
     assert response.json()["detail"] == "Lobby with id : 'nonexistent' was not found."
+
+# --- Client disconnects
 
 def test_websocket_client_disconnects(create_mock_lobby, websocket_connection):
     """Test that the lobby manager handles client disconnections gracefully."""
