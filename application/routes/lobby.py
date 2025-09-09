@@ -53,7 +53,7 @@ async def join_lobby(websocket: WebSocket, lobby_id: str):
     try:
         await lobby_manager.connect(websocket, lobby_id)
         await websocket.accept()
-        await lobby_manager.broadcast_lobby(lobby_id)
+        await lobby_manager.broadcast_lobby_info(lobby_id)
         while True:
             data = await websocket.receive_text()
             await lobby_manager.handle_client_message(websocket, lobby_id, data)

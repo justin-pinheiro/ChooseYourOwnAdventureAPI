@@ -1,12 +1,14 @@
 from application.app.adventure.adventure_exceptions import AdventureNotFoundException
 from application.app.game_manager import GameManager
 from application.app.lobby.lobbies_manager import LobbiesManager
-from application.app.lobby.lobby_exceptions import LobbyIsFullException, LobbyNotFound
+from application.app.lobby.lobby_exceptions import ConnectionNotFoundException, LobbyIsFullException, LobbyNotFound
 from domain.adventure import Adventure
+from domain.connection import Connection
 from domain.lobby import Lobby
+from domain.user import User
 import pytest
 from unittest.mock import Mock, patch
-from typing import Dict, List
+from starlette.websockets import WebSocketDisconnect
 
 # --- Mocks for Dependencies ---
 
@@ -18,6 +20,12 @@ class MockAdventure:
 class MockWebSocket:
     async def accept(self):
         pass
+    async def send_json(self, message):
+        pass
+
+class MockConnection:
+    def __init__(self, websocket):
+        self.socket = websocket
 
 # --- Fixtures for Tests ---
 
@@ -162,3 +170,167 @@ async def test_connect_raises_lobby_is_full(lobbies_manager):
         
         with pytest.raises(LobbyIsFullException, match=full_lobby_id):
             await lobbies_manager.connect(mock_websocket, full_lobby_id)
+
+# --- Unit Tests for disconnect method ---
+
+def test_disconnect_success_with_multiple_clients(lobbies_manager):
+    """Test that a client is successfully disconnected and the lobby remains."""
+    lobby_id = "test_lobby_multi"
+    lobby = Lobby(lobby_id, max_players=4, adventure=MockAdventure(1, "adventure"))
+    
+    socket1 = MockWebSocket()
+    socket2 = MockWebSocket()
+    lobby.connections.append(MockConnection(socket1))
+    lobby.connections.append(MockConnection(socket2))
+    lobbies_manager.lobbies[lobby_id] = lobby
+    
+    lobbies_manager.disconnect(socket1, lobby_id)
+    assert len(lobby.connections) == 1
+    assert lobby.connections[0].socket == socket2
+    assert lobby_id in lobbies_manager.lobbies
+
+def test_disconnect_last_client_removes_lobby(lobbies_manager):
+    """Test that disconnecting the last client removes the lobby."""
+    lobby_id = "test_lobby_single"
+    lobby = Lobby(lobby_id, max_players=4, adventure=MockAdventure(1, "adventure"))
+    
+    socket1 = MockWebSocket()
+    lobby.connections.append(MockConnection(socket1))
+    lobbies_manager.lobbies[lobby_id] = lobby
+    
+    lobbies_manager.disconnect(socket1, lobby_id)
+    
+    assert lobby_id not in lobbies_manager.lobbies
+    assert not lobby.connections
+
+def test_disconnect_non_existent_client_leaves_others_untouched(lobbies_manager):
+    """Test that attempting to disconnect a non-existent client does not affect others."""
+    lobby_id = "test_lobby_non_existent_client"
+    lobby = Lobby(lobby_id, max_players=4, adventure=MockAdventure(1, "adventure"))
+    
+    socket1 = MockWebSocket()
+    lobby.connections.append(MockConnection(socket1))
+    lobbies_manager.lobbies[lobby_id] = lobby
+    
+    non_existent_socket = MockWebSocket()
+    lobbies_manager.disconnect(non_existent_socket, lobby_id)
+    
+    assert len(lobby.connections) == 1
+    assert lobby.connections[0].socket == socket1
+    assert lobby_id in lobbies_manager.lobbies
+
+def test_disconnect_from_non_existent_lobby_does_nothing(lobbies_manager):
+    """Test that attempting to disconnect from a non-existent lobby does not raise an error."""
+    non_existent_id = "non_existent_lobby"
+    socket = MockWebSocket()
+    assert len(lobbies_manager.lobbies) == 0
+    lobbies_manager.disconnect(socket, non_existent_id)
+    assert len(lobbies_manager.lobbies) == 0
+
+# --- Unit Tests for broadcast_lobby_info method ---
+
+@pytest.mark.asyncio
+async def test_broadcast_lobby_info_success(lobbies_manager):
+    """Test that broadcasting lobby info successfully sends a message to all clients."""
+    lobby_id = "broadcast_test_lobby"
+    lobby = Lobby(lobby_id, max_players=4, adventure=Adventure(1, "adventure", "description", 2, 4, None))
+    
+    socket1 = Mock(spec=MockWebSocket)
+    socket2 = Mock(spec=MockWebSocket)
+    lobby.connections.append(Connection(socket1, User("name1"), False, "id1"))
+    lobby.connections.append(Connection(socket2, User("name2"), True, "id2"))
+    lobbies_manager.lobbies[lobby_id] = lobby
+    
+    await lobbies_manager.broadcast_lobby_info(lobby_id)
+    
+    expected_message = {
+        'type': 'lobby_info',
+        'lobby': {
+            "id": "broadcast_test_lobby",
+            "max_players": 4,
+            "current_players": 2,
+            "adventure_title": "adventure",
+            "adventure_description": "description",
+            "game_started": False,
+            "current_round": 0,
+            "players": [
+                {
+                    "name": "name1",
+                    "is_ready": False
+                },
+                {
+                    "name": "name2",
+                    "is_ready": True
+                },
+            ],
+            "is_full": False
+        }
+    }
+    
+    socket1.send_json.assert_called_once_with(expected_message)
+    socket1.send_json.assert_called_once_with(expected_message)
+
+@pytest.mark.asyncio
+async def test_broadcast_lobby_info_disconnects_client_on_websocket_disconnect(lobbies_manager):
+    """Test that a client is disconnected when a WebSocketDisconnect exception occurs."""
+    lobby_id = "disconnect_on_broadcast"
+    lobby = Lobby(lobby_id, max_players=4, adventure=MockAdventure(1, "adventure"))
+    lobby.to_dict = Mock(return_value={"id": lobby_id, "players": 2})
+
+    mock_socket1 = Mock(spec=MockWebSocket)
+    mock_socket1.send_json.side_effect = WebSocketDisconnect
+    mock_socket2 = Mock(spec=MockWebSocket)
+    
+    lobby.connections.append(MockConnection(mock_socket1))
+    lobby.connections.append(MockConnection(mock_socket2))
+    lobbies_manager.lobbies[lobby_id] = lobby
+    
+    with patch.object(lobbies_manager, "disconnect") as mock_disconnect:
+        await lobbies_manager.broadcast_lobby_info(lobby_id)
+        mock_disconnect.assert_called_once_with(mock_socket1, lobby_id)
+        mock_socket2.send_json.assert_called_once()
+
+# --- Unit tests for switch_client_ready_state method ---
+
+@pytest.mark.asyncio
+async def test_switch_client_ready_state_success(lobbies_manager):
+    """Test that a client's ready state is successfully toggled."""
+    lobby_id = "ready_state_lobby"
+    lobby = Lobby(lobby_id, max_players=4, adventure=MockAdventure(1, "adventure"))
+    
+    mock_socket = MockWebSocket()
+    mock_user = User("test_user")
+    connection = Connection(mock_socket, mock_user)
+    connection.is_ready = False
+    
+    lobby.connections.append(connection)
+    lobbies_manager.lobbies[lobby_id] = lobby
+    
+    result = await lobbies_manager.switch_client_ready_state(mock_socket, lobby_id)
+    assert result is True
+    assert connection.is_ready is True
+    
+    result = await lobbies_manager.switch_client_ready_state(mock_socket, lobby_id)
+    assert result is False
+    assert connection.is_ready is False
+
+@pytest.mark.asyncio
+async def test_switch_client_ready_state_raises_connection_not_found(lobbies_manager):
+    """Test that an error is handled when the connection is not found."""
+    lobby_id = "test_lobby"
+    lobby = Lobby(lobby_id, max_players=4, adventure=MockAdventure(1, "adventure"))
+    lobbies_manager.lobbies[lobby_id] = lobby
+    
+    non_existent_socket = MockWebSocket()
+    
+    with pytest.raises(ConnectionNotFoundException):
+        await lobbies_manager.switch_client_ready_state(non_existent_socket, lobby_id)
+
+@pytest.mark.asyncio
+async def test_switch_client_ready_state_raises_value_error_if_lobby_not_found(lobbies_manager):
+    """Test that a ValueError is handled when the lobby does not exist."""
+    non_existent_id = "non_existent_id"
+    mock_socket = MockWebSocket()
+    
+    with pytest.raises(LobbyNotFound):
+        await lobbies_manager.switch_client_ready_state(mock_socket, non_existent_id)
