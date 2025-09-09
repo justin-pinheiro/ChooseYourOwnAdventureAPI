@@ -11,7 +11,7 @@ class Lobby:
     id: str
     max_players: int
     adventure: Adventure
-    game_state: GameState = GameState()
+    game_state: GameState = field(default_factory=GameState)
     connections: List[Connection] = field(default_factory=list)
     host: WebSocket = None
 
