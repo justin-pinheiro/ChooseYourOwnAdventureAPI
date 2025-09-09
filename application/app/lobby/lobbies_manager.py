@@ -5,18 +5,19 @@ from application.app.adventure.adventure_exceptions import AdventureNotFoundExce
 from application.app.adventure.adventure_loader import AdventureLoader
 from application.app.lobby.lobby_exceptions import ConnectionNotFoundException, LobbyIsFullException, LobbyNotFound
 from domain.connection import Connection
+from domain.game_state import GameState
 from fastapi import WebSocket, WebSocketDisconnect
 
 from domain.lobby import Lobby
 from domain.user import User
 from ..game_manager import GameManager
 
-class LobbyManager:
+class LobbiesManager:
     """
-    Manages all active WebSocket connections, organized by Lobby objects.
+    Handles all lobbies and their clients connections.
     """
     def __init__(self, game_manager : GameManager):
-        self.lobbies: Dict[str, Lobby] = {} # The key is the lobby ID, and the value is a Lobby object.
+        self.lobbies: Dict[str, Lobby] = {} # key is lobby ID, value is a Lobby object.
         self.game_manager = game_manager
 
     def create_lobby(self, max_players: int, adventure_id: int) -> str:
@@ -30,8 +31,7 @@ class LobbyManager:
             raise AdventureNotFoundException(adventure_id)
         
         lobby_id = str(uuid.uuid4())[:8]
-        self.lobbies[lobby_id] = Lobby(lobby_id, max_players, adventure_id)
-        self.lobbies[lobby_id].game_state.adventure = adventure
+        self.lobbies[lobby_id] = Lobby(lobby_id, max_players, adventure)
         
         print(f"Lobby '{lobby_id}' created with adventure: '{adventure.title}' (ID: {adventure_id}) and max:{max_players} players.")
 
@@ -42,12 +42,9 @@ class LobbyManager:
         Get a lobby by its ID.
         Raise a LobbyNotFound exception if the lobby id does not exist.
         """
-
         lobby = self.lobbies.get(lobby_id)
-
         if not lobby:
             raise LobbyNotFound(lobby_id)
-
         return lobby
     
     def get_all_lobbies(self) -> Dict:
@@ -61,7 +58,28 @@ class LobbyManager:
             "total_lobbies": len(self.lobbies),
             "lobbies": lobbies_info
         }
+    
+    async def connect(self, socket: WebSocket, lobby_id: str):
+        """
+        Adds a new client connection to a specified lobby.
+        This method raises:
+        - LobbyNotFound if lobby does not exist
+        - LobbyIsFullException if lobby is full
+        """
+        lobby = self.get_lobby(lobby_id)
+
+        if lobby.is_full():
+            raise LobbyIsFullException(lobby_id)
         
+        lobby.connections.append(
+            Connection(socket=socket, user=User(f"Player"))
+        )
+        print(f"Client {socket} successfully connected to lobby '{lobby_id}'. Total connections: {len(lobby.connections)}.")
+
+
+
+
+
     async def handle_client_message(self, websocket: WebSocket, lobby_id: str, data: str):
         """
         Handles incoming messages from a client and dispatches them to the correct handler.
@@ -80,11 +98,10 @@ class LobbyManager:
 
             elif message_type == "start_adventure":
                 # The game manager is now responsible for handling its own exceptions.
-                await self.start_lobby(lobby_id)
+                await self.start_game(lobby_id)
                 await self.start_new_round(lobby_id)
 
             elif message_type == "submit_choice":
-                # The game manager is now responsible for handling its own exceptions.
                 await self.submit_choice(lobby_id, websocket, message)
 
             else:
@@ -101,20 +118,19 @@ class LobbyManager:
             # This catch-all is for unexpected errors in message processing.
             print(f"An error occurred while processing message in lobby '{lobby_id}': {e}")
 
-
-    async def start_lobby(self, lobby_id: int):
-        """Start a given lobby"""
+    async def start_game(self, lobby_id: int):
+        """Start the game in a given lobby"""
 
         lobby = self.get_lobby(lobby_id)
         
         all_players_ready = all(connection.is_ready for connection in lobby.connections)
         if not all_players_ready: raise Exception("All players must be ready")
 
-        lobby.game_state.started = True
+        self.game_manager.start_game()
 
-        for connection in list[Connection](lobby.connections):
+        for connection in lobby.connections:
 
-            lobby.game_state.chapters[connection.id] = []
+            self.game_manager.game_state.chapters[connection.id] = []
 
             message = {
                 "type" : "start_adventure",
@@ -128,21 +144,6 @@ class LobbyManager:
             except WebSocketDisconnect:
                 self.disconnect(connection.socket, lobby.id)
 
-    async def connect(self, socket: WebSocket, lobby_id: str):
-        """Adds a new client connection to a specified lobby."""
-        
-        lobby = self.get_lobby(lobby_id)
-
-        if lobby.is_full():
-            raise LobbyIsFullException(lobby_id)
-
-        await socket.accept()
-        
-        lobby.connections.append(
-            Connection(socket=socket, user=User(f"Player"))
-        )
-        
-        print(f"Client {socket} successfully connected to lobby '{lobby_id}'. Total connections: {len(lobby.connections)}")
 
     def _get_connection_by_socket(self, lobby_id: str, socket: WebSocket):
         """
@@ -161,18 +162,17 @@ class LobbyManager:
         raise ConnectionNotFoundException(f"Connection not found for socket in lobby '{lobby_id}'.")
 
     async def switch_client_ready_state(self, socket: WebSocket, lobby_id: str):
-        """Switches the ready state of a client and broadcasts the updated lobby info."""
+        """Switches the ready state of a client."""
         try:
             connection = self._get_connection_by_socket(lobby_id, socket)
             connection.is_ready = not connection.is_ready
             print(f"Player '{connection.user.name}' in lobby '{lobby_id}' toggled ready state to: {connection.is_ready}")
-            await self.broadcast_lobby(lobby_id)
             return connection.is_ready
         except (ConnectionNotFoundException, ValueError) as e:
             print(f"Error switching ready state: {e}")
             return None
     
-    async def submit_choice(self, lobby_id: str, sender: WebSocket, message):
+    async def submit_choice(self, lobby_id: str, sender: WebSocket, choice : int):
         """Handle player choice submission"""
         
         if lobby_id not in self.lobbies: return None
@@ -191,14 +191,14 @@ class LobbyManager:
         
         sender_uuid = uuid.UUID(sender_connection.id)
         
-        self.game_manager.submit_choice(lobby, sender_uuid, message)
+        self.game_manager.submit_choice(sender_uuid, choice)
         
         all_choices_made = True
         for connection in lobby.connections:
             connection_uuid = uuid.UUID(connection.id)
-            if (connection_uuid not in lobby.game_state.chapters or 
-                not lobby.game_state.chapters[connection_uuid] or 
-                lobby.game_state.chapters[connection_uuid][-1].choice == -1):
+            if (connection_uuid not in self.game_manager.game_state.chapters or 
+                not self.game_manager.game_state.chapters[connection_uuid] or 
+                self.game_manager.game_state.chapters[connection_uuid][-1].choice == -1):
                 all_choices_made = False
                 break
 
@@ -211,7 +211,7 @@ class LobbyManager:
     async def start_new_round(self, lobby: Lobby):
         """Start a new round, and send a message to inform all players"""
 
-        if not lobby.game_state.adventure:
+        if not self.game_manager.game_state.adventure:
             print(f"[ERROR] No adventure set for lobby {lobby.id}")
             return
         
@@ -222,9 +222,9 @@ class LobbyManager:
             message = {
                 "type" : "new_round",
                 "info" : {
-                    "round_index" : lobby.game_state.round,
-                    "text" : lobby.game_state.chapters[connection.id][-1].text,
-                    "choices" : lobby.game_state.chapters[connection.id][-1].possiblities,
+                    "round_index" : self.game_manager.game_state.round,
+                    "text" : self.game_manager.game_state.chapters[connection.id][-1].text,
+                    "choices" : self.game_manager.game_state.chapters[connection.id][-1].possiblities,
                 }
             }
             
@@ -270,7 +270,7 @@ class LobbyManager:
         
         message = {
             "type" : "lobby_info",
-            "info" : lobby.to_dict()
+            "lobby" : lobby.to_dict()
         }
 
         # Create a copy of connections to avoid modification during iteration

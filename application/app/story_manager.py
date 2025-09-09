@@ -10,13 +10,13 @@ class StoryManager:
     Separated from game mechanics to focus purely on storytelling.
     """
     
-    def __init__(self):
+    def __init__(self, adventure : Adventure):
+        self.adventure = adventure
         self.llm_client = OpenRouterClient()
 
     async def generate_chapter(
         self, 
         player_name: str, 
-        adventure: Adventure, 
         previous_chapters: List[Chapter] = None, 
         last_choice: str = None
     ) -> Chapter:
