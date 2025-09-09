@@ -23,17 +23,14 @@ class AdventureLoader():
             KeyError: If required fields are missing from the JSON
         """
         
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        full_path = os.path.join(base_dir, file_path)
+        print(f"[DEBUG] Loading adventures from: {file_path}")
         
-        print(f"[DEBUG] Loading adventures from: {full_path}")
-        
-        if not os.path.exists(full_path):
-            raise FileNotFoundError(f"Adventures file not found: {full_path}")
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Adventures file not found: {file_path}")
         
         # Read and parse JSON
         try:
-            with open(full_path, 'r', encoding='utf-8') as file:
+            with open(file_path, 'r', encoding='utf-8') as file:
                 adventures_data = json.load(file)
         except json.JSONDecodeError as e:
             raise json.JSONDecodeError(f"Invalid JSON in adventures file: {e}")

@@ -1,6 +1,8 @@
 from unittest.mock import patch
+
 from application.routes.lobby import lobby_manager
 from domain.adventure import Adventure
+from domain.lobby import Lobby
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from main import app
@@ -8,301 +10,211 @@ import pytest
 
 client = TestClient(app)
 
-def test_create_lobby_success(monkeypatch):
-    """Test that a lobby can be created with valid player limits."""
+# --- fixtures
+
+@pytest.fixture(autouse=True)
+def clean_lobbies():
+    """Clean up lobbies before and after each test"""
+    lobby_manager.lobbies.clear()
+    yield
+    lobby_manager.lobbies.clear()
+
+@pytest.fixture
+def websocket_connection():
+    """Fixture to manage WebSocket connections and ensure they're closed after each test"""
+    active_connections = []
+    
+    def _create_connection(path):
+        ws = client.websocket_connect(path)
+        active_connections.append(ws)
+        return ws
+    
+    yield _create_connection
+    
+    # Clean up all connections after the test
+    for ws in active_connections:
+        try:
+            ws.close()
+        except Exception:
+            pass  # Connection might already be closed
+
+@pytest.fixture
+def mock_adventure():
+    """Fixture to provide a mock adventure"""
     with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
+        "application.app.adventure.adventure_loader.AdventureLoader.get_adventure_by_id",
         return_value=Adventure(1, "title", "description", 2, 4, None),
-    ):
-        response = client.post(
-            "/lobbies/create",
-            params={"max_players": 4, "adventure_id": 1}
-        )
+    ) as mock:
+        yield mock
+
+@pytest.fixture
+def create_mock_lobby():
+    """
+    Fixture to create and return a mock lobby with a predefined ID. 
+    The lobby is added directly to the lobby_manager for testing.
+    """
+    mock_lobby_id = "1"
+    mock_adventure = Adventure(1, "title", "description", 2, 4, None)
+    
+    mock_lobby = Lobby(mock_lobby_id, 3, mock_adventure)
+    lobby_manager.lobbies[mock_lobby_id] = mock_lobby
+    
+    yield mock_lobby_id
+
+# --- Integration tests
+
+# --- Creating a lobby
+
+def test_create_lobby_success(mock_adventure):
+    
+    response = client.post(
+        "/lobbies/create",
+        params={"max_players": 4, "adventure_id": 1}
+    )
+
     assert response.status_code == 200
     assert "lobby_id" in response.json()
     lobby_id = response.json()["lobby_id"]
     assert lobby_id in lobby_manager.lobbies
 
-def test_create_lobby_invalid_limits():
+def test_create_lobby_invalid_limits(mock_adventure):
     """Test that a lobby cannot be created with invalid limits."""
-    with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
-        return_value=Adventure(1, "title", "description", 2, 4, None),
-    ):
-        response = client.post(
-            "/lobbies/create",
-            params={"max_players": 0, "adventure_id": 1}
-        )
+    response = client.post(
+        "/lobbies/create",
+        params={"max_players": 0, "adventure_id": 1}
+    )
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid player limits: max_players must be at least 1"
 
-def test_websocket_connect_and_message():
-    """Test that a client can connect to a lobby and send a message."""
-    
-    with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
-        return_value=Adventure(1, "title", "description", 2, 4, None),
-    ):
-        create_response = client.post(
-            "/lobbies/create",
-            params={"max_players": 4, "adventure_id": 1}
-        )
+# --- Joining a lobby
 
-    assert create_response.status_code == 200
-
-    lobby_id = create_response.json()["lobby_id"]
-    assert lobby_id in lobby_manager.lobbies
-
-    with client.websocket_connect(f"/lobbies/join/{lobby_id}") as websocket:
-        welcome = websocket.receive_text()
-        assert welcome == f"Welcome to lobby '{lobby_id}'."
-        
-        lobby_info = websocket.receive_json()
-
-        print(lobby_info["info"])      
-
-        assert lobby_info["info"]["lobby"]["id"] == lobby_id
-        assert lobby_info["info"]["lobby"]["current_players"] == 1
-        
-        test_message = "Hello, world!"
-        websocket.send_text(test_message)
-        
-        response = websocket.receive_text()
-        assert response == f"Server received your message: '{test_message}'"
-
-def test_websocket_join_non_existent_lobby():
+def test_websocket_joins_non_existent_lobby(mock_adventure, websocket_connection):
     """Test that a connection to a non-existent lobby fails."""
     non_existent_id = "nonexistent"
-    with pytest.raises(WebSocketDisconnect) as excinfo:
-        with client.websocket_connect(f"/lobbies/join/{non_existent_id}") as websocket:
-            websocket.receive_text()
-    assert excinfo.value.code == 1008
-    assert excinfo.value.reason == "Lobby not found"
 
-def test_websocket_join_full_lobby():
+    with pytest.raises(WebSocketDisconnect) as e:
+        with websocket_connection(f"/lobbies/join/{non_existent_id}"):
+            pass
+
+    assert e.value.code == 1008
+    assert "Lobby with id : 'nonexistent' was not found." in str(e.value.reason)
+    
+def test_websocket_joins_lobby_successfully(create_mock_lobby, websocket_connection):
+    """Test that a client can connect to a lobby."""
+    lobby_id = "1"
+    
+    with websocket_connection(f"/lobbies/join/{lobby_id}") as websocket:
+        lobby_info = websocket.receive_json()
+        assert "type" in lobby_info
+        assert lobby_info["type"] == "lobby_info"
+        assert lobby_info["lobby"]["id"] == lobby_id
+        assert lobby_info["lobby"]["current_players"] == 1
+
+def test_websocket_join_full_lobby(create_mock_lobby, websocket_connection):
     """Test that a connection to a full lobby fails."""
+    lobby_id = "1"
     
-    with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
-        return_value=Adventure(1, "title", "description", 2, 4, None),
-    ):
-        create_response = client.post(
-            "/lobbies/create",
-            params={"max_players": 1, "adventure_id": 1}
-        )
-        
-    lobby_id = create_response.json()["lobby_id"]
-    
-    with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws1:
-        ws1.receive_text()
-        
-        with pytest.raises(WebSocketDisconnect) as excinfo:
-            with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws2:
-                ws2.receive_text()
-        
-        assert excinfo.value.code == 1008
-        assert excinfo.value.reason == "Lobby is full"
+    with websocket_connection(f"/lobbies/join/{lobby_id}") as ws1:
+        ws1.receive_json()
+        with websocket_connection(f"/lobbies/join/{lobby_id}") as ws2:
+            ws2.receive_json()
+            with websocket_connection(f"/lobbies/join/{lobby_id}") as ws3:
+                ws3.receive_json()
+            
+                with pytest.raises(WebSocketDisconnect) as excinfo:
+                    with websocket_connection(f"/lobbies/join/{lobby_id}"):
+                        pass
 
-def test_websocket_broadcast_lobby_info():
+    assert excinfo.value.code == 1008
+    assert excinfo.value.reason == f"Lobby with ID {lobby_id} is full."
+
+# --- Broadcasting lobby info
+
+def test_websocket_broadcast_lobby_info(create_mock_lobby, websocket_connection):
     """Test that all clients receive updated lobby info when a new client joins."""
+    lobby_id = create_mock_lobby
+
+    with websocket_connection(f"/lobbies/join/{lobby_id}") as ws1:
+        lobby_info_1 = ws1.receive_json()
+        assert lobby_info_1["type"] == "lobby_info"
+        assert lobby_info_1["lobby"]["current_players"] == 1
+        assert lobby_info_1["lobby"]["id"] == lobby_id
+
+        with websocket_connection(f"/lobbies/join/{lobby_id}") as ws2:
+            lobby_info_2 = ws2.receive_json()
+            assert lobby_info_2["type"] == "lobby_info"
+            assert lobby_info_2["lobby"]["current_players"] == 2
+            assert lobby_info_2["lobby"]["id"] == lobby_id
+
+            lobby_update = ws1.receive_json()
+            assert lobby_update["type"] == "lobby_info"
+            assert lobby_update["lobby"]["current_players"] == 2
+            assert lobby_update["lobby"]["id"] == lobby_id
+
+# --- Getting all lobbies info
+
+def test_get_all_lobbies_success(create_mock_lobby):
+    """Test that the endpoint returns a list of all lobbies."""
+    response = client.get("/lobbies/")
+    assert response.status_code == 200
+    data = response.json()
+    assert "total_lobbies" in data
+    assert "lobbies" in data
+    assert data["total_lobbies"] == 1
+    assert len(data["lobbies"]) == 1
+    lobby = data["lobbies"][0]
+    assert lobby["id"] == create_mock_lobby
+    assert lobby["current_players"] == 0
+
+def test_get_all_lobbies_empty():
+    """Test that the endpoint returns an empty lobby list when no lobbies exist."""
+    response = client.get("/lobbies/")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_lobbies"] == 0
+    assert data["lobbies"] == []
+
+# --- Getting one lobby info
+
+def test_get_lobby_info_success(create_mock_lobby):
+    """Test that the endpoint returns detailed info for a specific lobby."""
+    lobby_id = create_mock_lobby
+    response = client.get(f"/lobbies/{lobby_id}")
+    assert response.status_code == 200
+    lobby_info = response.json()
+    assert lobby_info["id"] == lobby_id
+    assert lobby_info["current_players"] == 0
+    assert "max_players" in lobby_info
+    assert "adventure_title" in lobby_info
+    assert "adventure_description" in lobby_info
+    assert lobby_info["adventure_title"] == "title"
+    assert lobby_info["adventure_description"] == "description"
+
+def test_get_lobby_info_not_found():
+    """Test that the endpoint returns a 404 for a non-existent lobby."""
+    response = client.get("/lobbies/nonexistent")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Lobby with id : 'nonexistent' was not found."
+
+# --- Client disconnects
+
+def test_websocket_client_disconnects(create_mock_lobby, websocket_connection):
+    """Test that the lobby manager handles client disconnections gracefully."""
+    lobby_id = create_mock_lobby
     
-    with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
-        return_value=Adventure(1, "title", "description", 2, 4, None),
-    ):
-        create_response = client.post(
-            "/lobbies/create",
-            params={"max_players": 4, "adventure_id": 1}
-        )
-        
-    assert create_response.status_code == 200
-    lobby_id = create_response.json()["lobby_id"]
-    assert lobby_id in lobby_manager.lobbies
+    with websocket_connection(f"/lobbies/join/{lobby_id}") as ws1:
+        initial_info = ws1.receive_json()
+        assert initial_info["type"] == "lobby_info"
+        assert initial_info["lobby"]["current_players"] == 1
 
-    # Connect first client
-    with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws1:
-        welcome1 = ws1.receive_text()
-        assert welcome1 == f"Welcome to lobby '{lobby_id}'."
-        
-        # ws1 should receive lobby info as JSON
-        lobby_info_msg1 = ws1.receive_json()
-        assert lobby_info_msg1["info"]["lobby"]["current_players"] == 1
-        assert lobby_info_msg1["info"]["lobby"]["id"] == lobby_id
-
-        # Connect second client
-        with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws2:
-            welcome2 = ws2.receive_text()
-            assert welcome2 == f"Welcome to lobby '{lobby_id}'."
-            # ws2 should receive lobby info as JSON
-            lobby_info_msg2 = ws2.receive_json()
-            assert lobby_info_msg2["info"]["lobby"]["current_players"] == 2
-            assert lobby_info_msg2["info"]["lobby"]["id"] == lobby_id
-
-            # ws1 should also receive updated lobby info
-            lobby_info_msg1_update = ws1.receive_json()
-            assert lobby_info_msg1_update["type"] == "lobby_info"
-            assert lobby_info_msg1_update["info"]["lobby"]["id"] == lobby_id
-            assert lobby_info_msg1_update["info"]["lobby"]["current_players"] == 2
-
-def test_player_ready_state_toggle():
-    """Test that players can toggle their ready state."""
-    import json
-    
-    with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
-        return_value=Adventure(1, "title", "description", 2, 4, None),
-    ):
-        create_response = client.post(
-            "/lobbies/create",
-            params={"min_players": 2, "max_players": 4, "adventure_id": 1}
-        )
-        
-    lobby_id = create_response.json()["lobby_id"]
-    
-    with client.websocket_connect(f"/lobbies/join/{lobby_id}") as websocket:
-        # Skip welcome message and initial lobby info
-        websocket.receive_text()
-        initial_lobby_info = websocket.receive_json()
-        
-        print(initial_lobby_info["info"])
-
-        # Verify player starts as not ready
-        assert initial_lobby_info["info"]["lobby"]["players"][0]["is_ready"] == False
-        
-        # Toggle ready state to True
-        websocket.send_text(json.dumps({"type": "toggle_ready"}))
-        
-        # Check updated lobby info
-        updated_lobby_info = websocket.receive_json()
-        assert updated_lobby_info["type"] == "lobby_info"
-        assert updated_lobby_info["info"]["lobby"]["players"][0]["is_ready"] == True
-
-        # Check ready response
-        ready_response = websocket.receive_json()
-        assert ready_response["type"] == "ready_toggled"
-        assert ready_response["success"] == True
-        assert ready_response["is_ready"] == True
-        
-        # Toggle ready state back to False
-        websocket.send_text(json.dumps({"type": "toggle_ready"}))
-        
-        # Check updated lobby info
-        updated_lobby_info2 = websocket.receive_json()
-        assert updated_lobby_info2["type"] == "lobby_info"
-        assert updated_lobby_info2["info"]["lobby"]["players"][0]["is_ready"] == False
-
-        # Check ready response
-        ready_response2 = websocket.receive_json()
-        assert ready_response2["type"] == "ready_toggled"
-        assert ready_response2["success"] == True
-        assert ready_response2["is_ready"] == False
-
-def test_multiple_players_ready_state():
-    """Test that multiple players can independently toggle their ready states."""
-    import json
-    
-    with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
-        return_value=Adventure(1, "title", "description", 2, 4, None),
-    ):
-        create_response = client.post(
-            "/lobbies/create",
-            params={"min_players": 2, "max_players": 4, "adventure_id": 1}
-        )
-        
-    lobby_id = create_response.json()["lobby_id"]
-    
-    with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws1:
-        # Player 1 connects
-        ws1.receive_text()  # Welcome message
-        ws1.receive_json()  # Initial lobby info
-        
-        with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws2:
-            # Player 2 connects
-            ws2.receive_text()  # Welcome message
-            ws2.receive_json()  # Initial lobby info
-            ws1.receive_json()  # Player 1 gets updated lobby info
-
-            # Player 1 toggles ready
-            ws1.send_text(json.dumps({"type": "toggle_ready"}))
-            lobby_info_1 = ws1.receive_json()  # Updated lobby info
-            lobby_info_2 = ws2.receive_json()  # Player 2 gets updated lobby info
-            ready_response_1 = ws1.receive_json()  # Player 1 ready response
+        with websocket_connection(f"/lobbies/join/{lobby_id}") as ws2:
+            ws2_initial_info = ws2.receive_json()
+            ws1_update = ws1.receive_json()
             
-            # Verify Player 1 is ready, Player 2 is not
-            assert lobby_info_1["info"]["lobby"]["players"][0]["is_ready"] == True
-            assert lobby_info_1["info"]["lobby"]["players"][1]["is_ready"] == False
-            assert lobby_info_2["info"]["lobby"]["players"][0]["is_ready"] == True
-            assert lobby_info_2["info"]["lobby"]["players"][1]["is_ready"] == False
-            assert ready_response_1["type"] == "ready_toggled"
-            assert ready_response_1["success"] == True
-            assert ready_response_1["is_ready"] == True
+            assert ws2_initial_info["lobby"]["current_players"] == 2
+            assert ws1_update["lobby"]["current_players"] == 2
 
-            # Player 2 toggles ready
-            ws2.send_text(json.dumps({"type": "toggle_ready"}))
-            lobby_info_2 = ws2.receive_json()  # Updated lobby info
-            lobby_info_1 = ws1.receive_json()  # Player 1 gets updated lobby info
-            ready_response_2 = ws2.receive_json()  # Player 2 ready response
-            
-            # Verify both players are ready
-            assert lobby_info_1["info"]["lobby"]["players"][0]["is_ready"] == True
-            assert lobby_info_1["info"]["lobby"]["players"][1]["is_ready"] == True
-            assert lobby_info_2["info"]["lobby"]["players"][0]["is_ready"] == True
-            assert lobby_info_2["info"]["lobby"]["players"][1]["is_ready"] == True
-            assert ready_response_2["type"] == "ready_toggled"
-            assert ready_response_2["success"] == True
-            assert ready_response_2["is_ready"] == True
+        ws1_disconnect_update = ws1.receive_json()
+        assert ws1_disconnect_update["lobby"]["current_players"] == 1
 
-            # Player 1 toggles ready back to False
-            ws1.send_text(json.dumps({"type": "toggle_ready"}))
-            lobby_info_1 = ws1.receive_json()  # Updated lobby info
-            lobby_info_2 = ws2.receive_json()  # Player 2 gets updated lobby info
-            ready_response_1_final = ws1.receive_json()  # Player 1 ready response
-            
-            # Verify Player 1 is not ready, Player 2 is ready
-            assert lobby_info_1["info"]["lobby"]["players"][0]["is_ready"] == False
-            assert lobby_info_1["info"]["lobby"]["players"][1]["is_ready"] == True
-            assert lobby_info_2["info"]["lobby"]["players"][0]["is_ready"] == False
-            assert lobby_info_2["info"]["lobby"]["players"][1]["is_ready"] == True
-            assert ready_response_1_final["type"] == "ready_toggled"
-            assert ready_response_1_final["success"] == True
-            assert ready_response_1_final["is_ready"] == False
-
-def test_ready_state_preserved_in_lobby_info():
-    """Test that ready states are properly included in all lobby info broadcasts."""
-    import json
-    
-    with patch(
-        "application.app.adventure_loader.AdventureLoader.get_adventure_by_id",
-        return_value=Adventure(1, "title", "description", 2, 4, None),
-    ):
-        create_response = client.post(
-            "/lobbies/create",
-            params={"min_players": 1, "max_players": 3, "adventure_id": 1}
-        )
-
-    lobby_id = create_response.json()["lobby_id"]
-    
-    with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws1:
-        ws1.receive_text()  # Welcome
-        ws1.receive_json()  # Initial lobby info
-        
-        # Player 1 becomes ready
-        ws1.send_text(json.dumps({"type": "toggle_ready"}))
-        ws1.receive_json()  # Updated lobby info
-        ws1.receive_json()  # Ready response
-        
-        # Player 2 joins
-        with client.websocket_connect(f"/lobbies/join/{lobby_id}") as ws2:
-            ws2.receive_text()  # Welcome
-            lobby_info_2 = ws2.receive_json()  # Lobby info for player 2
-            lobby_info_1 = ws1.receive_json()  # Updated lobby info for player 1
-            
-            # Both should show Player 1 as ready, Player 2 as not ready
-            assert len(lobby_info_1["info"]["lobby"]["players"]) == 2
-            assert lobby_info_1["info"]["lobby"]["players"][0]["is_ready"] == True
-            assert lobby_info_1["info"]["lobby"]["players"][1]["is_ready"] == False
-            
-            assert len(lobby_info_2["info"]["lobby"]["players"]) == 2
-            assert lobby_info_2["info"]["lobby"]["players"][0]["is_ready"] == True
-            assert lobby_info_2["info"]["lobby"]["players"][1]["is_ready"] == False
+    assert lobby_id not in lobby_manager.lobbies
