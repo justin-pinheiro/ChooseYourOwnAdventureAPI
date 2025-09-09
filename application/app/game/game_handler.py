@@ -3,8 +3,6 @@ from typing import Dict
 import uuid
 from fastapi import WebSocket, WebSocketDisconnect
 from domain.lobby import Lobby
-from domain.connection import Connection
-from ..game_manager import GameManager
 
 class GameHandler:
     """
@@ -12,9 +10,6 @@ class GameHandler:
     This class is responsible for managing the game state, processing player actions,
     and coordinating game progression.
     """
-    def __init__(self, game_manager: GameManager):
-        self.game_manager = game_manager
-
     async def handle_client_message(self, websocket: WebSocket, lobby: Lobby, data: str):
         """
         Handles incoming messages from a client and dispatches them to the correct handler.

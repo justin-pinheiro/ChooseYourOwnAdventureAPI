@@ -1,7 +1,5 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from httpx import AsyncClient
-from application.app.lobby.lobby_exceptions import LobbyNotFound
 from application.routes.lobby import lobby_manager
 from domain.adventure import Adventure
 from domain.lobby import Lobby
@@ -9,7 +7,6 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from main import app
 import pytest
-import json
 
 client = TestClient(app)
 
@@ -147,3 +144,65 @@ def test_websocket_broadcast_lobby_info(create_mock_lobby, websocket_connection)
             assert lobby_update["type"] == "lobby_info"
             assert lobby_update["lobby"]["current_players"] == 2
             assert lobby_update["lobby"]["id"] == lobby_id
+
+def test_get_all_lobbies_success(create_mock_lobby):
+    """Test that the endpoint returns a list of all lobbies."""
+    response = client.get("/lobbies/")
+    assert response.status_code == 200
+    data = response.json()
+    assert "total_lobbies" in data
+    assert "lobbies" in data
+    assert data["total_lobbies"] == 1
+    assert len(data["lobbies"]) == 1
+    lobby = data["lobbies"][0]
+    assert lobby["id"] == create_mock_lobby
+    assert lobby["current_players"] == 0
+
+def test_get_all_lobbies_empty():
+    """Test that the endpoint returns an empty lobby list when no lobbies exist."""
+    response = client.get("/lobbies/")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_lobbies"] == 0
+    assert data["lobbies"] == []
+
+def test_get_lobby_info_success(create_mock_lobby):
+    """Test that the endpoint returns detailed info for a specific lobby."""
+    lobby_id = create_mock_lobby
+    response = client.get(f"/lobbies/{lobby_id}")
+    assert response.status_code == 200
+    lobby_info = response.json()
+    assert lobby_info["id"] == lobby_id
+    assert lobby_info["current_players"] == 0
+    assert "max_players" in lobby_info
+    assert "adventure_title" in lobby_info
+    assert "adventure_description" in lobby_info
+    assert lobby_info["adventure_title"] == "title"
+    assert lobby_info["adventure_description"] == "description"
+
+def test_get_lobby_info_not_found():
+    """Test that the endpoint returns a 404 for a non-existent lobby."""
+    response = client.get("/lobbies/nonexistent")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Lobby with id : 'nonexistent' was not found."
+
+def test_websocket_client_disconnects(create_mock_lobby, websocket_connection):
+    """Test that the lobby manager handles client disconnections gracefully."""
+    lobby_id = create_mock_lobby
+    
+    with websocket_connection(f"/lobbies/join/{lobby_id}") as ws1:
+        initial_info = ws1.receive_json()
+        assert initial_info["type"] == "lobby_info"
+        assert initial_info["lobby"]["current_players"] == 1
+
+        with websocket_connection(f"/lobbies/join/{lobby_id}") as ws2:
+            ws2_initial_info = ws2.receive_json()
+            ws1_update = ws1.receive_json()
+            
+            assert ws2_initial_info["lobby"]["current_players"] == 2
+            assert ws1_update["lobby"]["current_players"] == 2
+
+        ws1_disconnect_update = ws1.receive_json()
+        assert ws1_disconnect_update["lobby"]["current_players"] == 1
+
+    assert lobby_id not in lobby_manager.lobbies

@@ -10,16 +10,15 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from domain.lobby import Lobby
 from domain.user import User
-from ..game_manager import GameManager
 from ..game.game_handler import GameHandler
 
 class LobbiesManager:
     """
     Handles all lobbies and their clients connections.
     """
-    def __init__(self, game_manager: GameManager):
+    def __init__(self):
         self.lobbies: Dict[str, Lobby] = {}  # key is lobby ID, value is a Lobby object.
-        self.game_handler = GameHandler(game_manager)
+        self.game_handler = GameHandler()
 
     def create_lobby(self, max_players: int, adventure_id: int) -> str:
         """Generates a unique ID and creates a new lobby."""
@@ -77,7 +76,7 @@ class LobbiesManager:
         )
         print(f"Client {socket} successfully connected to lobby '{lobby_id}'. Total connections: {len(lobby.connections)}.")
 
-    def disconnect(self, socket: WebSocket, lobby_id: str):
+    async def disconnect(self, socket: WebSocket, lobby_id: str):
         """Removes a client connection from a specified lobby."""
         if lobby_id in self.lobbies.keys():
             lobby = self.lobbies[lobby_id]
@@ -86,6 +85,7 @@ class LobbiesManager:
                 if connection.socket == socket:
                     lobby.connections.remove(connection)
                     print(f"Client {socket} removed from lobby '{lobby_id}'. Total clients: {len(lobby.connections)}")
+                    await self.broadcast_lobby_info(lobby_id)
                     break
                 
             if not lobby.connections:
@@ -108,6 +108,7 @@ class LobbiesManager:
                 await connection.socket.send_json(message)
             except WebSocketDisconnect:
                 self.disconnect(connection.socket, lobby_id)
+                self.broadcast_lobby_info(lobby_id)
             except Exception as e:
                 print(f"Error broadcasting to {connection.socket}: {e}")
 

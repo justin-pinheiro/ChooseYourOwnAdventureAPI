@@ -3,11 +3,9 @@ from application.app.lobby.lobby_exceptions import LobbyIsFullException, LobbyNo
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 import traceback
 from application.app.lobby.lobbies_manager import LobbiesManager
-from application.app.game_manager import GameManager
 
 router = APIRouter()
-game_manager = GameManager()
-lobby_manager = LobbiesManager(game_manager)
+lobby_manager = LobbiesManager()
 
 @router.post("/create")
 async def create_lobby_endpoint(max_players: int, adventure_id : int):
@@ -63,6 +61,7 @@ async def join_lobby(websocket: WebSocket, lobby_id: str):
         await websocket.close(code=1008, reason=str(e))
 
     except WebSocketDisconnect:
+        await lobby_manager.disconnect(websocket, lobby_id)
         print(f"Client disconnected from lobby '{lobby_id}'.")
     
     except Exception as e:
@@ -73,4 +72,7 @@ async def join_lobby(websocket: WebSocket, lobby_id: str):
 
     finally:
         print(f"Cleaning up connection for lobby '{lobby_id}'.")
-        lobby_manager.disconnect(websocket, lobby_id)
+        try:
+            await lobby_manager.disconnect(websocket, lobby_id)
+        except Exception as e:
+            print(f"Error during final cleanup: {e}")
