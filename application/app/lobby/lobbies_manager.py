@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Dict
 import uuid
 from application.app.adventure.adventure_exceptions import AdventureNotFoundException
@@ -19,6 +20,7 @@ class LobbiesManager:
     def __init__(self):
         self.lobbies: Dict[str, Lobby] = {}  # key is lobby ID, value is a Lobby object.
         self.game_handler = GameHandler()
+        self.logger = logging.getLogger()
 
     def create_lobby(self, max_players: int, adventure_id: int) -> str:
         """Generates a unique ID and creates a new lobby."""
@@ -33,7 +35,7 @@ class LobbiesManager:
         lobby_id = str(uuid.uuid4())[:8]
         self.lobbies[lobby_id] = Lobby(lobby_id, max_players, adventure)
         
-        print(f"Lobby '{lobby_id}' created with adventure: '{adventure.title}' (ID: {adventure_id}) and max:{max_players} players.")
+        self.logger.info(f"Lobby '{lobby_id}' created with adventure: '{adventure.title}' (ID: {adventure_id}) and max:{max_players} players.")
 
         return lobby_id
     
@@ -74,7 +76,7 @@ class LobbiesManager:
         lobby.connections.append(
             Connection(socket=socket, user=User(f"Player"))
         )
-        print(f"Client {socket} successfully connected to lobby '{lobby_id}'. Total connections: {len(lobby.connections)}.")
+        self.logger.info(f"Client {socket} successfully connected to lobby '{lobby_id}'. Total connections: {len(lobby.connections)}.")
 
     async def disconnect(self, socket: WebSocket, lobby_id: str):
         """Removes a client connection from a specified lobby."""
@@ -84,13 +86,13 @@ class LobbiesManager:
             for connection in lobby.connections:
                 if connection.socket == socket:
                     lobby.connections.remove(connection)
-                    print(f"Client {socket} removed from lobby '{lobby_id}'. Total clients: {len(lobby.connections)}")
+                    self.logger.info(f"Client {socket} removed from lobby '{lobby_id}'. Total clients: {len(lobby.connections)}")
                     await self.broadcast_lobby_info(lobby_id)
                     break
                 
             if not lobby.connections:
                 del self.lobbies[lobby_id]
-                print(f"Lobby '{lobby_id}' is now empty and has been removed.")
+                self.logger.info(f"Lobby '{lobby_id}' is now empty and has been removed.")
 
     async def broadcast_lobby_info(self, lobby_id: str):
         lobby = self.lobbies.get(lobby_id)
@@ -109,7 +111,7 @@ class LobbiesManager:
             except WebSocketDisconnect:
                 await self.disconnect(connection.socket, lobby_id)
             except Exception as e:
-                print(f"Error broadcasting to {connection.socket}: {e}")
+                self.logger.error(f"Error broadcasting to {connection.socket}: {e}")
 
     def _get_connection_by_socket(self, lobby_id: str, socket: WebSocket):
         """
@@ -130,7 +132,7 @@ class LobbiesManager:
             return None
             
         connection.is_ready = not connection.is_ready
-        print(f"Player '{connection.user.name}' in lobby '{lobby_id}' toggled ready state to: {connection.is_ready}")
+        self.logger.info(f"Player '{connection.user.name}' in lobby '{lobby_id}' toggled ready state to: {connection.is_ready}")
         return connection.is_ready
 
     async def handle_client_message(self, websocket: WebSocket, lobby_id: str, data: str):
@@ -142,4 +144,4 @@ class LobbiesManager:
             await self.game_handler.handle_client_message(websocket, lobby, data)
             await self.broadcast_lobby_info(lobby_id)
         except Exception as e:
-            print(f"An error occurred while processing message in lobby '{lobby_id}': {e}")
+            self.logger.error(f"An error occurred while processing message in lobby '{lobby_id}': {e}")
