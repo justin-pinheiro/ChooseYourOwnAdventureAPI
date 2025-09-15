@@ -1,5 +1,6 @@
+from json import JSONDecodeError
 from application.app.adventure.adventure_exceptions import AdventureNotFoundException
-from application.app.lobby.lobbies_manager import LobbiesManager
+from application.app.lobby.lobbies_manager import LobbiesManager, MessageType
 from application.app.lobby.lobby_exceptions import ConnectionNotFoundException, LobbyIsFullException, LobbyNotFound
 from domain.adventure import Adventure
 from domain.connection import Connection
@@ -333,3 +334,60 @@ async def test_switch_client_ready_state_raises_value_error_if_lobby_not_found(l
     
     with pytest.raises(LobbyNotFound):
         await lobbies_manager.switch_client_ready_state(mock_socket, non_existent_id)
+
+# --- Unit Tests for start_game method ---
+
+@pytest.mark.asyncio
+def test_start_game_success(lobbies_manager):
+    """Test that the game state is successfully set to started."""
+    lobby_id = lobbies_manager.create_lobby(max_players=4, adventure_id=1)
+    lobby = lobbies_manager.lobbies[lobby_id]
+    
+    assert not lobby.game_state.started
+    
+    lobbies_manager.start_game(lobby_id)
+    assert lobby.game_state.started
+
+@pytest.mark.asyncio
+def test_start_game_raises_not_found(lobbies_manager):
+    """Test that a LobbyNotFound exception is raised for a non-existent lobby."""
+    non_existent_id = "nonexistent"
+    
+    with pytest.raises(LobbyNotFound):
+        lobbies_manager.start_game(non_existent_id)
+
+# --- Unit tests for parse_client_message method ---
+
+@pytest.mark.asyncio
+def test_parse_client_message_success(lobbies_manager):
+    """Test that a valid message is parsed correctly."""
+    valid_message_json = '{"type": "START_GAME", "value": "value"}'
+    
+    message_type, data = lobbies_manager.parse_client_message(valid_message_json)
+    
+    assert message_type == MessageType.START_GAME
+    assert data == "value"
+
+@pytest.mark.asyncio
+def test_parse_client_message_invalid_json(lobbies_manager):
+    """Test that an invalid JSON message returns None and None."""
+    invalid_json = '{"type": "START_GAME", "value": "value"' # Missing closing brace
+    
+    with pytest.raises(JSONDecodeError):
+        message_type, data = lobbies_manager.parse_client_message(invalid_json)
+
+@pytest.mark.asyncio
+def test_parse_client_message_missing_type_key(lobbies_manager):
+    """Test that a message without a 'type' key returns None and None."""
+    missing_type_json = '{"value": "value"}'
+    
+    with pytest.raises(ValueError):
+        message_type, data = lobbies_manager.parse_client_message(missing_type_json)
+
+@pytest.mark.asyncio
+def test_parse_client_message_invalid_type_value(lobbies_manager):
+    """Test that a message with an invalid 'type' value returns None and None."""
+    invalid_type_json = '{"type": "INVALID_TYPE"}'
+    
+    with pytest.raises(ValueError):
+        message_type, data = lobbies_manager.parse_client_message(invalid_type_json)

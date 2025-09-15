@@ -69,7 +69,8 @@ async def join_lobby(websocket: WebSocket, lobby_id: str):
         await lobby_manager.broadcast_lobby_info(lobby_id)
         while True:
             data = await websocket.receive_text()
-            await lobby_manager.handle_client_message(websocket, lobby_id, data)
+            message_type, message_content = lobby_manager._parse_client_message(data)
+            await lobby_manager.handle_client_message(websocket, lobby_id, message_type, message_content)
 
     except (LobbyNotFound, LobbyIsFullException) as e:
         logger.warning(f"Connection attempt failed: {e}")
